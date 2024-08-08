@@ -27,9 +27,15 @@ void cardDetect_interrupt(GPIO_PIN Pin, bool pinState, void *pArg)
 
 // Reserve all MMC pins
 // CMD, Data0, Data1, Data2, Data3
-int8_t pins4bit[] = {15, 2, 4, 12, 13};
+//int8_t pins4bit[] = {15, 2, 4, 12, 13};
 // CMD, Data0
-int8_t pins1bit[] = {15, 2};
+//int8_t pins1bit[] = {15, 2};
+
+// Reserve all MMC pins
+// CLK, CMD, Data0, Data1, Data2, Data3
+int8_t pins4bit[] = {11, 12, 10, 9, 14, 13};
+// CLK, CMD, Data0
+int8_t pins1bit[] = {11, 12, 10};
 
 void GetMMCPins(bool _1bit, int *count, int8_t **pPins)
 {

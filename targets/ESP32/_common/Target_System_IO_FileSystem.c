@@ -107,6 +107,13 @@ bool Storage_MountMMC(bool bit1Mode, int driveIndex)
     // Modify slot_config.gpio_cd and slot_config.gpio_wp if your board has these signals.
     sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
 
+    slot_config.clk = 11;
+    slot_config.cmd = 12;
+    slot_config.d0 = 10;
+    slot_config.d1 = 9;
+    slot_config.d2 = 14;
+    slot_config.d3 = 13;
+
     // Set bus width to use
     if (bit1Mode)
     {
