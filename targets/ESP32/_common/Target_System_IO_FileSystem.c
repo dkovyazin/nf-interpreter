@@ -114,6 +114,12 @@ bool Storage_MountMMC(bool bit1Mode, int driveIndex)
     slot_config.d2 = 14;
     slot_config.d3 = 13;
 
+    gpio_set_pull_mode(12, GPIO_PULLUP_ONLY);   // CMD, needed in 4- and 1- line modes
+    gpio_set_pull_mode(10, GPIO_PULLUP_ONLY);    // D0, needed in 4- and 1-line modes
+    gpio_set_pull_mode(9, GPIO_PULLUP_ONLY);    // D1, needed in 4-line mode only
+    gpio_set_pull_mode(14, GPIO_PULLUP_ONLY);   // D2, needed in 4-line mode only
+    gpio_set_pull_mode(13, GPIO_PULLUP_ONLY);
+
     // Set bus width to use
     if (bit1Mode)
     {
