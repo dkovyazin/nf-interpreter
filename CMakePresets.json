@@ -12,5 +12,19 @@
         "targets/FreeRTOS/CMakePresets.json",
         "targets/TI_SimpleLink/CMakePresets.json",
         "targets-community/CMakePresets.json"
+    ],
+    "configurePresets": [
+        {
+            "name": "ESP32_CUSTOM",
+            "description": "",
+            "displayName": "",
+            "inherits": [
+                "ESP32_S3"
+            ],
+            "cacheVariables": {
+                "TARGET_NAME": "${presetName}",
+                "NF_INTEROP_ASSEMBLIES": "interoplib"
+            }
+        }
     ]
 }
