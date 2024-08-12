@@ -16,8 +16,8 @@
     "configurePresets": [
         {
             "name": "ESP32_CUSTOM",
-            "description": "",
-            "displayName": "",
+            "description": "ESP32_CUSTOM",
+            "displayName": "ESP32_CUSTOM",
             "inherits": [
                 "ESP32_S3"
             ],

@@ -12,7 +12,7 @@
 .vscode/cmake-variants.json
 
 # ignore any content inside the Interop assemblies folder
-InteropAssemblies/*
+# InteropAssemblies/*
 !InteropAssemblies/CLR_RT_InteropAssembliesTable.cpp.in
 !InteropAssemblies/README.md
 
@@ -28,7 +28,7 @@ InteropAssemblies/*
 .vscode/*.log
 
 # ignore CMake modules for Interop assemblies
-CMake/Modules/FindINTEROP*.cmake
+# CMake/Modules/FindINTEROP*.cmake
 
 # Visual Studio
 ## Ignore Visual Studio temporary files, build results, and
