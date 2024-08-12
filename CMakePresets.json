@@ -23,6 +23,7 @@
             ],
             "cacheVariables": {
                 "TARGET_NAME": "${presetName}",
+                "NF_BUILD_RTM": "OFF",
                 "NF_INTEROP_ASSEMBLIES": "interoplib"
             }
         }

@@ -38,6 +38,7 @@ struct CLR_DBG_Commands
     static const unsigned int c_Monitor_QueryConfiguration = 0x0000000F;
     static const unsigned int c_Monitor_UpdateConfiguration= 0x00000010;
     static const unsigned int c_Monitor_TargetInfo         = 0x00000020;
+    static const unsigned int c_Monitor_StorageOperation   = 0x00000030;
 
     //--//
 
