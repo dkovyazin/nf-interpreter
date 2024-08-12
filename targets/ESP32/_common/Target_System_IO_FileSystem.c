@@ -102,6 +102,7 @@ bool Storage_MountMMC(bool bit1Mode, int driveIndex)
     ESP_LOGI(TAG, "Initializing MMC SD card");
 
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
 
     // This initializes the slot without card detect (CD) and write protect (WP) signals.
     // Modify slot_config.gpio_cd and slot_config.gpio_wp if your board has these signals.
@@ -114,22 +115,11 @@ bool Storage_MountMMC(bool bit1Mode, int driveIndex)
     slot_config.d2 = 14;
     slot_config.d3 = 13;
 
-    gpio_set_pull_mode(12, GPIO_PULLUP_ONLY);   // CMD, needed in 4- and 1- line modes
-    gpio_set_pull_mode(10, GPIO_PULLUP_ONLY);    // D0, needed in 4- and 1-line modes
-    
     // Set bus width to use
     if (bit1Mode)
-    {
         slot_config.width = 1;
-    }
     else
-    {
         slot_config.width = 4;
-
-        gpio_set_pull_mode(9, GPIO_PULLUP_ONLY);    // D1, needed in 4-line mode only
-        gpio_set_pull_mode(14, GPIO_PULLUP_ONLY);   // D2, needed in 4-line mode only
-        gpio_set_pull_mode(13, GPIO_PULLUP_ONLY);
-    }
 
     // from IDF readme on SDMMC
     //
