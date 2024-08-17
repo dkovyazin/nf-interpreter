@@ -13,6 +13,14 @@
 #include <nanoCLR_Runtime.h>
 #include <nanoPackStruct.h>
 
+struct Library_interoplib_interoplib_LedPixelController
+{
+    NANOCLR_NATIVE_DECLARE(NativeInit___STATIC__VOID__I4__U1__U1__U1);
+    NANOCLR_NATIVE_DECLARE(NativeWrite___STATIC__VOID__SZARRAY_U1);
+
+    //--//
+};
+
 struct Library_interoplib_interoplib_Utilities
 {
     static const int FIELD_STATIC___hardwareSerial = 0;

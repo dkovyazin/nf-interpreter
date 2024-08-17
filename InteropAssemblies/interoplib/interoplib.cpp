@@ -14,13 +14,17 @@ static const CLR_RT_MethodHandler method_lookup[] =
 {
     NULL,
     NULL,
+    Library_interoplib_interoplib_LedPixelController::NativeInit___STATIC__VOID__I4__U1__U1__U1,
+    Library_interoplib_interoplib_LedPixelController::NativeWrite___STATIC__VOID__SZARRAY_U1,
+    NULL,
+    NULL,
     Library_interoplib_interoplib_Utilities::NativeGetHardwareSerial___STATIC__VOID__SZARRAY_U1,
 };
 
 const CLR_RT_NativeAssemblyData g_CLR_AssemblyNative_interoplib =
 {
     "interoplib",
-    0x6C400EF7,
+    0x129DBCB4,
     method_lookup,
     { 1, 0, 0, 0 }
 };
