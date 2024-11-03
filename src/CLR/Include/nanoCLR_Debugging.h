@@ -39,7 +39,6 @@ struct CLR_DBG_Commands
     static const unsigned int c_Monitor_UpdateConfiguration= 0x00000010;
     static const unsigned int c_Monitor_StorageOperation   = 0x00000011;
     static const unsigned int c_Monitor_TargetInfo         = 0x00000020;
-    static const unsigned int c_Monitor_StorageOperation   = 0x00000030;
 
     //--//
 
@@ -68,9 +67,9 @@ struct CLR_DBG_Commands
     };
 
     struct Monitor_Signature
-    {        
+    {
         unsigned int m_keyIndex;
-        unsigned int m_length;   
+        unsigned int m_length;
         unsigned char  m_signature[1];
     };
 
@@ -80,14 +79,14 @@ struct CLR_DBG_Commands
     };
 
     struct Monitor_DeploymentMap
-    {    
+    {
         static const CLR_UINT32 c_CRC_Erased_Sentinel = 0x0;
 
         struct FlashSector
         {
             CLR_UINT32 m_start;
             CLR_UINT32 m_length;
-            
+
             CLR_UINT32 m_crc;
         };
 
@@ -132,10 +131,10 @@ struct CLR_DBG_Commands
     static const unsigned int c_Debugging_Thread_Unwind                  = 0x00020017; // Unwinds to given stack frame.
     static const unsigned int c_Debugging_Thread_CreateEx                = 0x00020018; // Creates a new thread but Thread.CurrentThread will return the identity of the passed thread.
     static const unsigned int c_Debugging_Thread_Get                     = 0x00021000; // Gets the current thread.
-                                                                 
+
     static const unsigned int c_Debugging_Stack_Info                     = 0x00020020; // Gets more info on a stack frame.
     static const unsigned int c_Debugging_Stack_SetIP                    = 0x00020021; // Sets the IP on a given thread.
-                                                                 
+
     static const unsigned int c_Debugging_Value_ResizeScratchPad         = 0x00020030; // Resizes the scratchpad area.
     static const unsigned int c_Debugging_Value_GetStack                 = 0x00020031; // Reads a value from the stack frame.
     static const unsigned int c_Debugging_Value_GetField                 = 0x00020032; // Reads a value from an object's field.
@@ -148,10 +147,10 @@ struct CLR_DBG_Commands
     static const unsigned int c_Debugging_Value_AllocateString           = 0x00020039; // Creates a new instance of a string.
     static const unsigned int c_Debugging_Value_AllocateArray            = 0x0002003A; // Creates a new instance of an array.
     static const unsigned int c_Debugging_Value_Assign                   = 0x0002003B; // Assigns a value to another value.
-                                                                 
+
     static const unsigned int c_Debugging_TypeSys_Assemblies             = 0x00020040; // Lists all the assemblies in the system.
     static const unsigned int c_Debugging_TypeSys_AppDomains             = 0x00020044; // Lists all the AppDomans loaded.
-                                                                 
+
     static const unsigned int c_Debugging_Resolve_Assembly               = 0x00020050; // Resolves an assembly.
     static const unsigned int c_Debugging_Resolve_Type                   = 0x00020051; // Resolves a type to a string.
     static const unsigned int c_Debugging_Resolve_Field                  = 0x00020052; // Resolves a field to a string.
@@ -161,13 +160,13 @@ struct CLR_DBG_Commands
 
     static const unsigned int c_Debugging_UpgradeToSsl                   = 0x00020069; //
 
-    //--//                                                       
-                                                                 
+    //--//
+
     static const unsigned int c_Debugging_Button_Report                  = 0x00020080; // Reports a button press/release.
     static const unsigned int c_Debugging_Button_Inject                  = 0x00020081; // Injects a button press/release.
-                                                                                                                   
+
     static const unsigned int c_Debugging_Deployment_Status              = 0x000200B0; // Returns entryPoint and boundary of deployment area.
-                                                                 
+
     static const unsigned int c_Debugging_Info_SetJMC                    = 0x000200C0; // Sets code to be flagged as JMC (Just my code).
 
     static const unsigned int c_Profiling_Command                        = 0x00030000; // Various incoming commands regarding profiling
@@ -207,7 +206,7 @@ struct CLR_DBG_Commands
         static const CLR_UINT32 c_CapabilityFlags_ConfigBlockRequiresErase  = 0x00000800;
 
         /////////////////////////////////////////////////////////////////////////////////
-        // THIS FLAG IS DEPRECATED AND WILL BE REMOVED IN A FUTURE VERSION 
+        // THIS FLAG IS DEPRECATED AND WILL BE REMOVED IN A FUTURE VERSION
         // USE Monitor_Ping_Source_Flags INSTEAD
         static const CLR_UINT32 c_CapabilityFlags_HasNanoBooter             = 0x00001000;
         /////////////////////////////////////////////////////////////////////////////////
@@ -240,7 +239,7 @@ struct CLR_DBG_Commands
             NFReleaseInfo m_clrReleaseInfo;
             NFVersion     m_TargetFrameworkVersion;
         };
-        
+
         struct __nfpack NativeAssemblyDetails
         {
             uint32_t CheckSum;
@@ -256,8 +255,8 @@ struct CLR_DBG_Commands
             HalSystemInfo       u_HalSystemInfo;
             ClrInfo             u_ClrInfo;
             NFReleaseInfo       u_TargetReleaseInfo;
-        };        
-    };    
+        };
+    };
 
     //--//
 
@@ -297,7 +296,7 @@ struct CLR_DBG_Commands
     };
 
     //--//
-    
+
 
     struct Debugging_Execution_BasePtr
     {
@@ -588,7 +587,7 @@ struct CLR_DBG_Commands
         //
         // For values from an array.
         //
-        
+
         // this is a CLR_RT_HeapBlock_Array *
         // has to be stored as CLR_UINT32 because CLR_RT_HeapBlock_Array has different size on 32 and 64 bit platforms
         CLR_UINT32              m_arrayref_referenceID;
@@ -721,7 +720,7 @@ struct CLR_DBG_Commands
     //--//
 
     struct Debugging_TypeSys_Assemblies
-    {        
+    {
         //
         // The reply is just an array of CLR_RT_Assembly_Index.
         //
@@ -732,13 +731,13 @@ struct CLR_DBG_Commands
         //
         // The reply is just an array of AppDomainIDs
         //
-    };    
+    };
 
     //--//
 
     struct Debugging_Resolve_AppDomain
-    {        
-        CLR_UINT32 m_id;        
+    {
+        CLR_UINT32 m_id;
 
         struct Reply
         {
@@ -807,7 +806,7 @@ struct CLR_DBG_Commands
     //--//
 
     struct Debugging_Deployment_Status
-    {    
+    {
         struct FlashSector
         {
             CLR_UINT32 Start;
@@ -819,7 +818,7 @@ struct CLR_DBG_Commands
             CLR_UINT32 EntryPoint;
             CLR_UINT32 StorageStart;
             CLR_UINT32 StorageLength;
-            
+
             // FlashSector SectorData[1];
         };
     };
@@ -864,7 +863,7 @@ struct CLR_DBG_Commands
         CLR_UINT16 m_seqId;
         CLR_UINT16 m_bitLen;
     };
-    
+
 };
 //#endif
 
@@ -917,8 +916,8 @@ private:
     bool ProcessHeader                           ( WP_Message *msg );
     bool ProcessPayload                          ( WP_Message *msg );
 
-       
-public:  
+
+public:
     static CLR_RT_Thread *GetThreadFromPid ( CLR_INT32 pid );
 
     static bool Monitor_Ping                            ( WP_Message *msg );
@@ -937,7 +936,7 @@ public:
     static bool Monitor_QueryConfiguration              ( WP_Message *msg );
     static bool Monitor_UpdateConfiguration             ( WP_Message *msg );
     static bool Monitor_StorageOperation                ( WP_Message *msg );
-                                             
+
     static bool Debugging_Execution_BasePtr             ( WP_Message *msg );
     static bool Debugging_Execution_ChangeConditions    ( WP_Message *msg );
 
@@ -966,10 +965,10 @@ public:
     static bool Debugging_Thread_GetException           ( WP_Message *msg );
     static bool Debugging_Thread_Unwind                 ( WP_Message *msg );
     static bool Debugging_Thread_Get                    ( WP_Message *msg );
-                                             
+
     static bool Debugging_Stack_Info                    ( WP_Message *msg );
     static bool Debugging_Stack_SetIP                   ( WP_Message *msg );
-                                             
+
     static bool Debugging_Value_ResizeScratchPad        ( WP_Message *msg );
     static bool Debugging_Value_GetStack                ( WP_Message *msg );
     static bool Debugging_Value_GetField                ( WP_Message *msg );
@@ -982,10 +981,10 @@ public:
     static bool Debugging_Value_AllocateString          ( WP_Message *msg );
     static bool Debugging_Value_AllocateArray           ( WP_Message *msg );
     static bool Debugging_Value_Assign                  ( WP_Message *msg );
-                                             
+
     static bool Debugging_TypeSys_Assemblies            ( WP_Message *msg );
     static bool Debugging_TypeSys_AppDomains            ( WP_Message *msg );
-                                             
+
     static bool Debugging_Resolve_AppDomain             ( WP_Message *msg );
     static bool Debugging_Resolve_Assembly              ( WP_Message *msg );
     static bool Debugging_Resolve_Type                  ( WP_Message *msg );
@@ -998,7 +997,7 @@ public:
 
 #if defined(NANOCLR_ENABLE_SOURCELEVELDEBUGGING)
     static bool Debugging_Info_SetJMC                   ( WP_Message *msg );
-    
+
     bool Debugging_Info_SetJMC_Type                     ( const CLR_RT_TypeDef_Index&   idx, bool fJMC );
     bool Debugging_Info_SetJMC_Method                   ( const CLR_RT_MethodDef_Index& idx, bool fJMC );
 #endif //#if defined(NANOCLR_ENABLE_SOURCELEVELDEBUGGING)
