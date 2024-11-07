@@ -20,7 +20,7 @@ static const CLR_RT_MethodHandler method_lookup[] =
 const CLR_RT_NativeAssemblyData g_CLR_AssemblyNative_interoplib =
 {
     "interoplib",
-    0x6C400EF7,
+    0x129DBCB4,
     method_lookup,
     { 1, 0, 0, 0 }
 };
