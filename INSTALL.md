@@ -65,9 +65,10 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Unrestricted
 В файле `user-tools-repos.json`:
 1. Поменяйте название с `user-tools-repos-local` на `user-tools-repos`
 2. В `cacheVariables` во всех значениях поставьте `null`
-3. Перезапустите VS Code
-4. После перезапуска вам будет сразу предложено выбрать preset, выберите `ESP32_S3`
-5. Нажмите F7 и дождитель завершения конфигурирования проекта. Это не быстро!
+3. Для переменно `ESP32_IDF_PATH` установите значение типа `C:/Users/dkovy/esp/v5.2.2/esp-idf`
+4. Перезапустите VS Code
+5. После перезапуска вам будет сразу предложено выбрать preset, выберите `ESP32_S3`
+6. Нажмите F7 и дождитель завершения конфигурирования проекта. Это не быстро!
 
 Установите если потребуется пакет esp-idf-kconfig:
 
