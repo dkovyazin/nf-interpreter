@@ -1,6 +1,6 @@
 //-----------------------------------------------------------------------------
 //
-//                   ** WARNING! ** 
+//                   ** WARNING! **
 //    This file was generated automatically by a tool.
 //    Re-running the tool will overwrite this file.
 //    You should copy this file to a custom location
@@ -16,10 +16,10 @@
 
 using namespace interoplib::interoplib;
 
-#define MOSI_PIN    41 //18
-#define MISO_PIN    39 //19
-#define CLK_PIN     40 //20
-#define CS_PIN      37
+#define MOSI_PIN    41
+#define MISO_PIN    39
+#define CLK_PIN     40
+#define CS_PIN      21 // 37 for ver 2
 
 #define SPI_FREQ_HZ		    2500000
 #define STRIPS_CNT 		    4
@@ -44,7 +44,7 @@ void LedPixelController::NativeInit( signed int pixelCount, uint8_t red, uint8_t
         spi = NULL;
         INIT_BUFFER_SIZE = 0;
     }
-    
+
     INIT_BUFFER_SIZE = 4 * pixelCount * 3;
     spi_bus_config_t bus_cfg {
         mosi_io_num: 		MOSI_PIN,
