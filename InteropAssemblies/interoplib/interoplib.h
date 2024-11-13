@@ -15,7 +15,7 @@
 
 struct Library_interoplib_interoplib_LedPixelController
 {
-    NANOCLR_NATIVE_DECLARE(NativeInit___STATIC__VOID__I4__U1__U1__U1);
+    NANOCLR_NATIVE_DECLARE(NativeInit___STATIC__VOID__I4__I4__I4__I4__I4__U1__U1__U1);
     NANOCLR_NATIVE_DECLARE(NativeWrite___STATIC__VOID__SZARRAY_U1);
 
     //--//

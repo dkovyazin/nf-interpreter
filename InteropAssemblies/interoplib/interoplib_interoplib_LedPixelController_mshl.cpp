@@ -12,7 +12,7 @@
 using namespace interoplib::interoplib;
 
 
-HRESULT Library_interoplib_interoplib_LedPixelController::NativeInit___STATIC__VOID__I4__U1__U1__U1( CLR_RT_StackFrame& stack )
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeInit___STATIC__VOID__I4__I4__I4__I4__I4__U1__U1__U1( CLR_RT_StackFrame& stack )
 {
     NANOCLR_HEADER(); hr = S_OK;
     {
@@ -20,16 +20,28 @@ HRESULT Library_interoplib_interoplib_LedPixelController::NativeInit___STATIC__V
         signed int param0;
         NANOCLR_CHECK_HRESULT( Interop_Marshal_INT32( stack, 0, param0 ) );
 
-        uint8_t param1;
-        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 1, param1 ) );
+        signed int param1;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_INT32( stack, 1, param1 ) );
 
-        uint8_t param2;
-        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 2, param2 ) );
+        signed int param2;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_INT32( stack, 2, param2 ) );
 
-        uint8_t param3;
-        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 3, param3 ) );
+        signed int param3;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_INT32( stack, 3, param3 ) );
 
-        LedPixelController::NativeInit( param0, param1, param2, param3, hr );
+        signed int param4;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_INT32( stack, 4, param4 ) );
+
+        uint8_t param5;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 5, param5 ) );
+
+        uint8_t param6;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 6, param6 ) );
+
+        uint8_t param7;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 7, param7 ) );
+
+        LedPixelController::NativeInit( param0, param1, param2, param3, param4, param5, param6, param7, hr );
         NANOCLR_CHECK_HRESULT( hr );
 
     }

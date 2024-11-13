@@ -30,7 +30,7 @@ spi_host_device_t SPI_HOST = SPI2_HOST;
 DMA_ATTR uint8_t DATA_BUFFER[MAX_BUFFER_SIZE];
 int INIT_BUFFER_SIZE = 0;
 
-void LedPixelController::NativeInit( signed int pixelCount, uint8_t red, uint8_t green, uint8_t blue, HRESULT &hr )
+void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, signed int clkPin, signed int csPin, signed int pixelCount, uint8_t red, uint8_t green, uint8_t blue, HRESULT &hr  )
 {
     esp_err_t ret;
 
@@ -47,9 +47,9 @@ void LedPixelController::NativeInit( signed int pixelCount, uint8_t red, uint8_t
 
     INIT_BUFFER_SIZE = 4 * pixelCount * 3;
     spi_bus_config_t bus_cfg {
-        mosi_io_num: 		MOSI_PIN,
-        miso_io_num: 		MISO_PIN,
-        sclk_io_num: 		CLK_PIN,
+        mosi_io_num: 		mosiPin,
+        miso_io_num: 		misoPin,
+        sclk_io_num: 		clkPin,
         quadwp_io_num:  	-1,
         quadhd_io_num:  	-1,
         data4_io_num:       -1,
@@ -76,7 +76,7 @@ void LedPixelController::NativeInit( signed int pixelCount, uint8_t red, uint8_t
         0,                   // cs_ena_posttrans
         SPI_FREQ_HZ,         // Clock speed in Hz
         0,                   // Input_delay_ns
-        CS_PIN,              // Chip select, we will use manual chip select
+        csPin,              // Chip select, we will use manual chip select
         0,                   // SPI_DEVICE flags
         7,                   // Queue size
         0,                   // Callback before
@@ -101,7 +101,7 @@ void LedPixelController::NativeInit( signed int pixelCount, uint8_t red, uint8_t
             color++;
     }
 
-    spi_send_data2(DATA_BUFFER, INIT_BUFFER_SIZE);
+    spi_send_data(DATA_BUFFER, INIT_BUFFER_SIZE);
 
     hr = S_OK;
 }
