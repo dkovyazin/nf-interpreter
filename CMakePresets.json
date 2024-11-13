@@ -23,6 +23,7 @@
             ],
             "cacheVariables": {
                 "TARGET_NAME": "${presetName}",
+                "SDK_CONFIG_FILE": "sdkconfig.default.esp32s3",
                 "NF_BUILD_RTM": "OFF",
                 "NF_INTEROP_ASSEMBLIES": "interoplib"
             }
