@@ -223,11 +223,11 @@ esp_err_t NF_ESP32_InitaliseWifi()
                 return ec;
             }
 
-            ec = esp_netif_set_default_netif(wifiAPNetif);
-            if (ec != ESP_OK)
-            {
-                return ec;
-            }
+            //ec = esp_netif_set_default_netif(wifiAPNetif);
+            //if (ec != ESP_OK)
+            //{
+            //    return ec;
+            //}
 
             HAL_Configuration_NetworkInterface *networkConfig =
                 (HAL_Configuration_NetworkInterface *)platform_malloc(sizeof(HAL_Configuration_NetworkInterface));
