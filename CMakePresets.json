@@ -15,16 +15,16 @@
     ],
     "configurePresets": [
         {
-            "name": "ESP32_CUSTOM",
-            "description": "ESP32_CUSTOM",
-            "displayName": "ESP32_CUSTOM",
+            "name": "ESP32_LEDTREES",
+            "description": "ESP32_LEDTREES",
+            "displayName": "ESP32_LEDTREES",
             "inherits": [
                 "ESP32_S3"
             ],
             "cacheVariables": {
                 "TARGET_NAME": "${presetName}",
                 "SDK_CONFIG_FILE": "sdkconfig.default.esp32s3",
-                "NF_BUILD_RTM": "OFF",
+                "NF_BUILD_RTM": "ON",
                 "NF_INTEROP_ASSEMBLIES": "interoplib"
             }
         }
