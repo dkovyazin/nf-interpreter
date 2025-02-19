@@ -118,6 +118,7 @@ bool Storage_MountMMC(bool bit1Mode, int driveIndex)
     if (bit1Mode)
         slot_config.width = 1;
     else
+    {
         slot_config.width = 4;
 #if (defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32P4))
         slot_config.d1 = (gpio_num_t)Esp32_GetSDmmcDevicePins_C(driveIndex, Esp32SdmmcPin_D1);
