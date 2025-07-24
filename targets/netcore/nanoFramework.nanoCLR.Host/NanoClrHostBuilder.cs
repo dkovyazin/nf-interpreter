@@ -143,6 +143,7 @@ namespace nanoFramework.nanoCLR.Host
             s_nanoClrHost.WireProtocolPort = _wireProtocolPort;
             s_nanoClrHost.ConfigureSteps.AddRange(_configureSteps);
             s_nanoClrHost.PreInitConfigureSteps.AddRange(_preInitConfigureSteps);
+            s_nanoClrHost.CleanupSteps.AddRange(_cleanupSteps);
 
             s_nanoClrHost.nanoCLRSettings = new nanoCLRSettings
             {
@@ -162,7 +163,7 @@ namespace nanoFramework.nanoCLR.Host
 
         private nanoCLRHostBuilder SetProfilerMessageCallback(Action<string> profilerMessage)
         {
-            _preInitConfigureSteps.Add(() => Interop.nanoCLR.nanoCLR_SetProfilerMessageCallback((msg) => profilerMessage(msg)));
+            _configureSteps.Add(() => Interop.nanoCLR.nanoCLR_SetProfilerMessageCallback((msg) => profilerMessage(msg)));
 
             return this;
         }

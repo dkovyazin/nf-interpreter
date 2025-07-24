@@ -10,12 +10,13 @@
 CLR_UINT32 CLR_RT_GarbageCollector::ExecuteCompaction()
 {
     NATIVE_PROFILE_CLR_CORE();
-#if defined(NANOCLR_PROFILE_NEW_ALLOCATIONS)
-    g_CLR_PRF_Profiler.RecordHeapCompactionBegin();
-#endif
 
     // bump the number of heap compactions
     m_numberOfCompactions++;
+
+#if defined(NANOCLR_PROFILE_NEW_ALLOCATIONS)
+    g_CLR_PRF_Profiler.RecordHeapCompactionBegin();
+#endif
 
 #if defined(NANOCLR_TRACE_MEMORY_STATS)
 
@@ -580,6 +581,10 @@ void CLR_RT_GarbageCollector::Heap_Relocate(void **ref)
                 else
                 {
                     destinationAddress = (void *)(dst + relocCurrent.m_offset);
+
+#if defined(NANOCLR_PROFILE_NEW_ALLOCATIONS)
+                    g_CLR_PRF_Profiler.TrackObjectRelocation(*ref, destinationAddress);
+#endif
 
                     *ref = destinationAddress;
 

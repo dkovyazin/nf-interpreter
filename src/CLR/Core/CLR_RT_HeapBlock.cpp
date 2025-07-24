@@ -3,8 +3,8 @@
 // Portions Copyright (c) Microsoft Corporation.  All rights reserved.
 // See LICENSE file in the project root for full license information.
 //
+
 #include "Core.h"
-#include <nanoHAL.h>
 #include <nanoPAL_NativeDouble.h>
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2466,7 +2466,10 @@ void CLR_RT_HeapBlock::Relocate_String()
 {
     NATIVE_PROFILE_CLR_CORE();
 
-    CLR_RT_GarbageCollector::Heap_Relocate((void **)&m_data);
+    CLR_RT_GarbageCollector::Heap_Relocate((void **)&m_data.string.m_text);
+#if !defined(NANOCLR_NO_ASSEMBLY_STRINGS)
+    CLR_RT_GarbageCollector::Heap_Relocate((void **)&m_data.string.m_assm);
+#endif
 }
 
 void CLR_RT_HeapBlock::Relocate_Obj()

@@ -12,7 +12,8 @@
 .vscode/cmake-variants.json
 
 # ignore any content inside the Interop assemblies folder
-# InteropAssemblies/*
+InteropAssemblies/*
+!InteropAssemblies/CLR_IncludedAPI.h.in
 !InteropAssemblies/CLR_RT_InteropAssembliesTable.cpp.in
 !InteropAssemblies/README.md
 

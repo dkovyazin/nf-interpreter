@@ -137,6 +137,10 @@ void CLR_RT_AssertEarlyCollection::CheckAll(CLR_RT_HeapBlock *ptr)
 CLR_UINT32 CLR_RT_GarbageCollector::ExecuteGarbageCollection()
 {
     NATIVE_PROFILE_CLR_CORE();
+
+    // bump the number of garbage collections
+    m_numberOfGarbageCollections++;
+
 #if defined(NANOCLR_PROFILE_NEW_ALLOCATIONS)
     g_CLR_PRF_Profiler.RecordGarbageCollectionBegin();
 #endif
@@ -147,9 +151,6 @@ CLR_UINT32 CLR_RT_GarbageCollector::ExecuteGarbageCollection()
     int ellapsedTimeMilliSec = 0;
 
 #endif
-
-    // bump the number of garbage collections
-    m_numberOfGarbageCollections++;
 
 #if defined(NANOCLR_GC_VERBOSE)
     if (s_CLR_RT_fTrace_GC >= c_CLR_RT_Trace_Info)
@@ -408,6 +409,7 @@ void CLR_RT_GarbageCollector::Mark()
 
 #if !defined(NANOCLR_APPDOMAINS)
         CheckSingleBlock_Force(g_CLR_RT_ExecutionEngine.m_globalLock);
+        CheckSingleBlock_Force(g_CLR_RT_ExecutionEngine.m_outOfMemoryException);
 #endif
 
         CheckSingleBlock_Force(g_CLR_RT_ExecutionEngine.m_currentUICulture);
@@ -685,6 +687,7 @@ void CLR_RT_GarbageCollector::AppDomain_Mark()
 
         CheckSingleBlock_Force(appDomain->m_globalLock);
         CheckSingleBlock_Force(appDomain->m_strName);
+        CheckSingleBlock_Force(appDomain->m_outOfMemoryException);
     }
     NANOCLR_FOREACH_NODE_END();
 }
