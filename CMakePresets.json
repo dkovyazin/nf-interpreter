@@ -10,8 +10,7 @@
         "targets/ChibiOS/CMakePresets.json",
         "targets/ESP32/CMakePresets.json",
         "targets/FreeRTOS/CMakePresets.json",
-        "targets/TI_SimpleLink/CMakePresets.json",
-        "targets-community/CMakePresets.json"
+        "targets/TI_SimpleLink/CMakePresets.json"
     ],
     "configurePresets": [
         {
