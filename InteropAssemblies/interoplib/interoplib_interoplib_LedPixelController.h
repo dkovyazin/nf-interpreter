@@ -30,6 +30,6 @@ namespace interoplib
 }
 
 void spi_send_data(const uint8_t *data, int len);
-void spi_send_data2(const uint8_t *data, int len);
+void spi_send_data2();
 
 #endif // INTEROPLIB_INTEROPLIB_INTEROPLIB_LEDPIXELCONTROLLER_H

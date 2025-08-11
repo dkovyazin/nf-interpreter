@@ -115,7 +115,7 @@ void LedPixelController::NativeWrite( CLR_RT_TypedArray_UINT8 data, HRESULT &hr 
 
     memcpy(DATA_BUFFER, (void*)data.GetBuffer(), INIT_BUFFER_SIZE);
 
-    spi_send_data2(DATA_BUFFER, INIT_BUFFER_SIZE);
+    spi_send_data2();
 
     hr = S_OK;
 }
@@ -142,18 +142,18 @@ void spi_send_data(const uint8_t *data, int len)
 	} while (offset < len);
 }
 
-void spi_send_data2(const uint8_t *data, int len)
+void spi_send_data2()
 {
-	if (len == 0)
-		return;
+	//if (len == 0)
+	//	return;
 
 	esp_err_t ret;
 
     spi_transaction_t t;
 	memset(&t, 0, sizeof(t));
 
-	t.length = len * 8;
-	t.tx_buffer = data;
+	t.length = INIT_BUFFER_SIZE * 8;
+	t.tx_buffer = DATA_BUFFER;
 	ret = spi_device_polling_transmit(spi, &t);
 	assert(ret == ESP_OK);
 }
