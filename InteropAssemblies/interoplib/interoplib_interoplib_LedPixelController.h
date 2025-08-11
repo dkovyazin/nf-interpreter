@@ -25,10 +25,14 @@ namespace interoplib
             static void NativeInit( signed int param0, signed int param1, signed int param2, signed int param3, signed int param4, uint8_t param5, uint8_t param6, uint8_t param7, HRESULT &hr );
 
             static void NativeWrite( CLR_RT_TypedArray_UINT8 param0, HRESULT &hr );
+
+            static void NativeSet( uint8_t param0, uint16_t param1, uint8_t param2, uint8_t param3, uint8_t param4, HRESULT &hr );
+
         };
     }
 }
 
+void Task1code( void * pvParameters );
 void spi_send_data(const uint8_t *data, int len);
 void spi_send_data2();
 
