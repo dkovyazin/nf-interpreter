@@ -13,25 +13,27 @@
 #include "interoplib.h"
 #include "interoplib_interoplib_LedPixelController.h"
 #include "esp_log.h"
+#include "interoplib_config.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/semphr.h>
 
 using namespace interoplib::interoplib;
 
-#define MOSI_PIN    41
-#define MISO_PIN    39
-#define CLK_PIN     40
-#define CS_PIN      21 // 37 for ver 2
-
-#define SPI_FREQ_HZ		    2500000
-#define STRIPS_CNT 		    4
-#define MAX_BUFFER_SIZE     STRIPS_CNT * 1000 * 3
-
-spi_device_handle_t spi = NULL;
-spi_host_device_t SPI_HOST = SPI2_HOST;
-DMA_ATTR uint8_t DATA_BUFFER[MAX_BUFFER_SIZE];
-int INIT_BUFFER_SIZE = 0;
+static TaskHandle_t Task1;
+static spi_device_handle_t spi = NULL;
+static spi_host_device_t SPI_HOST = SPI2_HOST;
+static DMA_ATTR uint8_t DATA_BUFFER[BUFF_SIZE];
+static int LEDS_COUNT = 0;
+static int INIT_BUFFER_SIZE = 0;
 
 void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, signed int clkPin, signed int csPin, signed int pixelCount, uint8_t red, uint8_t green, uint8_t blue, HRESULT &hr  )
 {
+    if (LEDS_COUNT > 400) {
+        hr = S_FALSE;
+        return;
+    }
+
     esp_err_t ret;
 
     if (spi != NULL) {
@@ -45,6 +47,7 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
         INIT_BUFFER_SIZE = 0;
     }
 
+    LEDS_COUNT = pixelCount;
     INIT_BUFFER_SIZE = 4 * pixelCount * 3;
     spi_bus_config_t bus_cfg {
         mosi_io_num: 		mosiPin,
@@ -70,13 +73,13 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
         0,                   // Address bits
         0,                   // Dummy bits
         0,                   // SPi Mode
-        SPI_CLK_SRC_XTAL,    // Clock source
+        SPI_CLK_SRC_DEFAULT, // Clock source
         0,                   // Duty cycle 50/50
         0,                   // cs_ena_pretrans
         0,                   // cs_ena_posttrans
-        SPI_FREQ_HZ,         // Clock speed in Hz
+        SPI_LEDS_FREQ_HZ,         // Clock speed in Hz
         0,                   // Input_delay_ns
-        csPin,              // Chip select, we will use manual chip select
+        csPin,               // Chip select, we will use manual chip select
         0,                   // SPI_DEVICE flags
         7,                   // Queue size
         0,                   // Callback before
@@ -86,22 +89,20 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
     ret = spi_bus_add_device(SPI_HOST, &dev_cfg, &spi);
     ESP_ERROR_CHECK(ret);
 
-    int color = 0;
-    for (uint16_t led_num = 0; led_num < INIT_BUFFER_SIZE; led_num++) {
-        if (color == 0)
-            DATA_BUFFER[led_num] = red;
-        else if (color == 1)
-            DATA_BUFFER[led_num] = green;
-        else if (color == 2)
-            DATA_BUFFER[led_num] = blue;
+    LedPixelController::NativeSetFull(red, green, blue, hr);
+    if (hr != S_OK)
+        return;
 
-        if (color == 2)
-            color = 0;
-        else
-            color++;
-    }
+    xTaskCreatePinnedToCore(
+        Task1code,                                  /* Функция задачи. */
+        "Task1",                                    /* Ее имя. */
+        4096,                                       /* Размер стека функции */
+        NULL,                                       /* Параметры */
+        CONFIG_ESP32_PTHREAD_TASK_PRIO_DEFAULT,     /* Приоритет */
+        &Task1,                                     /* Дескриптор задачи для отслеживания */
+        1);
 
-    spi_send_data(DATA_BUFFER, INIT_BUFFER_SIZE);
+    //spi_send_data(DATA_BUFFER, INIT_BUFFER_SIZE);
 
     hr = S_OK;
 }
@@ -115,45 +116,63 @@ void LedPixelController::NativeWrite( CLR_RT_TypedArray_UINT8 data, HRESULT &hr 
 
     memcpy(DATA_BUFFER, (void*)data.GetBuffer(), INIT_BUFFER_SIZE);
 
-    spi_send_data2(DATA_BUFFER, INIT_BUFFER_SIZE);
+    hr = S_OK;
+}
+
+void LedPixelController::NativeSetFull( uint8_t red, uint8_t green, uint8_t blue, HRESULT &hr )
+{
+    for (int i = 0 ; i < LEDS_COUNT * STRIPS_CNT; ++i) {
+		DATA_BUFFER[i*3+0] = red;
+		DATA_BUFFER[i*3+1] = green;
+		DATA_BUFFER[i*3+2] = blue;
+	}
 
     hr = S_OK;
 }
 
-void spi_send_data(const uint8_t *data, int len)
+void LedPixelController::NativeSetPixel( uint8_t line, uint16_t cell, uint8_t red, uint8_t green, uint8_t blue, HRESULT &hr )
 {
-	if (len == 0)
-		return; // no need to send anything
+    int i = (cell * 3 * 4) + (line * 3);
+    DATA_BUFFER[i + 0] = red;
+    DATA_BUFFER[i + 1] = green;
+    DATA_BUFFER[i + 2] = blue;
 
-	esp_err_t ret;
-	int offset = 0;
-	do
-	{
-		spi_transaction_t t;
-		memset(&t, 0, sizeof(t)); // Zero out the transaction
-
-		int tx_len = ((len - offset) < SPI_MAX_DMA_LEN) ? (len - offset) : SPI_MAX_DMA_LEN;
-		t.length = tx_len * 8;						// Len is in bytes, transaction length is in bits.
-		t.tx_buffer = data + offset;				// pointer to the data
-		//t.flags = SPI_TRANS_CS_KEEP_ACTIVE;
-		ret = spi_device_polling_transmit(spi, &t); // Transmit!
-		assert(ret == ESP_OK);						// Should have had no issues.
-		offset += tx_len;							// Add the transmission length to the offset
-	} while (offset < len);
+    hr = S_OK;
 }
 
-void spi_send_data2(const uint8_t *data, int len)
-{
-	if (len == 0)
-		return;
+void Task1code( void * pvParameters ) {
+    while(1) {
+        spi_send_data(DATA_BUFFER, INIT_BUFFER_SIZE);
+    }
 
+    vTaskDelete(NULL);
+}
+
+void spi_send_data(const uint8_t *data, int len) {
+	int offset = 0;
+	do {
+		spi_transaction_t t;
+		memset(&t, 0, sizeof(t));
+
+		int tx_len = ((len - offset) < SPI_MAX_DMA_LEN) ? (len - offset) : SPI_MAX_DMA_LEN;
+		t.length = tx_len * 8;
+		t.tx_buffer = data + offset;
+		ESP_ERROR_CHECK(spi_device_polling_transmit(spi, &t));
+		offset += tx_len;
+	} while (offset < len);
+
+    vTaskDelay(1);
+}
+
+void spi_send_data2()
+{
 	esp_err_t ret;
 
     spi_transaction_t t;
 	memset(&t, 0, sizeof(t));
 
-	t.length = len * 8;
-	t.tx_buffer = data;
+	t.length = INIT_BUFFER_SIZE * 8;
+	t.tx_buffer = DATA_BUFFER;
 	ret = spi_device_polling_transmit(spi, &t);
 	assert(ret == ESP_OK);
 }

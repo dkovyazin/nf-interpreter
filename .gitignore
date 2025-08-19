@@ -381,3 +381,5 @@ ASALocalRun/
 CMakeUserPresets.json
 config/user-tools-repos.json
 config/user-prefs.json
+
+!InteropAssemblies/interoplib
