@@ -26,7 +26,9 @@ namespace interoplib
 
             static void NativeWrite( CLR_RT_TypedArray_UINT8 param0, HRESULT &hr );
 
-            static void NativeSet( uint8_t param0, uint16_t param1, uint8_t param2, uint8_t param3, uint8_t param4, HRESULT &hr );
+            static void NativeSetFull( uint8_t param0, uint8_t param1, uint8_t param2, HRESULT &hr );
+
+            static void NativeSetPixel( uint8_t param0, uint16_t param1, uint8_t param2, uint8_t param3, uint8_t param4, HRESULT &hr );
 
         };
     }
