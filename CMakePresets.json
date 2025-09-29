@@ -52,6 +52,8 @@
                 "TARGET_NAME": "${presetName}",
                 "SDK_CONFIG_FILE": "sdkconfig.default_lt_v2.esp32s3",
                 "NF_BUILD_RTM": "ON",
+                "NF_FEATURE_HAS_SDCARD": "ON",
+                "API_nanoFramework.Graphics": "OFF",
                 "NF_INTEROP_ASSEMBLIES": "interoplib"
             }
         },
@@ -66,6 +68,8 @@
                 "TARGET_NAME": "${presetName}",
                 "SDK_CONFIG_FILE": "sdkconfig.default_lt_v2.esp32s3",
                 "NF_BUILD_RTM": "OFF",
+                "NF_FEATURE_HAS_SDCARD": "ON",
+                "API_nanoFramework.Graphics": "OFF",
                 "NF_INTEROP_ASSEMBLIES": "interoplib"
             }
         }
