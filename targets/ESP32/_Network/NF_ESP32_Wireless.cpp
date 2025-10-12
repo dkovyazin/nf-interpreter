@@ -224,24 +224,6 @@ esp_err_t NF_ESP32_InitaliseWifi()
         // this can only be performed after Wi-Fi is started
         if (expectedWifiMode & WIFI_MODE_AP)
         {
-            ec = esp_netif_dhcps_stop(wifiAPNetif);
-            if (ec != ESP_OK)
-            {
-                return ec;
-            }
-
-            ec = esp_netif_dhcps_start(wifiAPNetif);
-            if (ec != ESP_OK)
-            {
-                return ec;
-            }
-
-            //ec = esp_netif_set_default_netif(wifiAPNetif);
-            //if (ec != ESP_OK)
-            //{
-            //    return ec;
-            //}
-
             HAL_Configuration_NetworkInterface *networkConfig =
                 (HAL_Configuration_NetworkInterface *)platform_malloc(sizeof(HAL_Configuration_NetworkInterface));
             if (networkConfig == NULL)
