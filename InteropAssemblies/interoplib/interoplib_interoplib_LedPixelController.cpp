@@ -79,6 +79,7 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
         0,                   // cs_ena_posttrans
         SPI_LEDS_FREQ_HZ,         // Clock speed in Hz
         0,                   // Input_delay_ns
+        SPI_SAMPLING_POINT_PHASE_0,
         csPin,               // Chip select, we will use manual chip select
         0,                   // SPI_DEVICE flags
         7,                   // Queue size
