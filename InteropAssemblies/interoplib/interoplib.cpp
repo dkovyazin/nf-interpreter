@@ -23,12 +23,18 @@ static const CLR_RT_MethodHandler method_lookup[] =
     NULL,
     NULL,
     Library_interoplib_interoplib_Utilities::NativeGetHardwareSerial___STATIC__VOID__SZARRAY_U1,
+    NULL,
+    NULL,
+    NULL,
+    Library_interoplib_interoplib_WiFi::NativeSetup___STATIC__VOID__STRING__STRING,
+    Library_interoplib_interoplib_WiFi::NativeConnect___STATIC__VOID__STRING__STRING,
+    Library_interoplib_interoplib_WiFi::NativeStop___STATIC__VOID,
 };
 
 const CLR_RT_NativeAssemblyData g_CLR_AssemblyNative_interoplib =
 {
     "interoplib",
-    0x0EE6EA51,
+    0xE121BE09,
     method_lookup,
     { 1, 0, 0, 0 }
 };

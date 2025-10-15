@@ -31,6 +31,8 @@ set(interoplib_SRCS
     interoplib_interoplib_LedPixelController.cpp
     interoplib_interoplib_Utilities_mshl.cpp
     interoplib_interoplib_Utilities.cpp
+    interoplib_interoplib_WiFi_mshl.cpp
+    interoplib_interoplib_WiFi.cpp
 
 )
 
