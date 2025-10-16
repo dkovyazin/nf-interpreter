@@ -37,7 +37,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Unrestricted
 
 1. В VS Code наберите `Ctrl+Shift+P` и введите `configure esp-idf extension`. Откроется страница установки ESP-IDF
 2. Выберите `EXPRESS`
-3. Выберите версию ESP-IDF 5.2.2, так как [nf-interpreter](https://github.com/nanoframework/nf-interpreter) поддерживает только её
+3. Выберите версию ESP-IDF 5.2.6, так как [nf-interpreter](https://github.com/nanoframework/nf-interpreter) поддерживает только её
 4. Остальные параметры оставьте как есть и нажмите `Install`
 5. Дождитесь завершения скачивания и установки всех пакетов
 
