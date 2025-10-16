@@ -29,6 +29,15 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
 		ESP_LOGI(LOG_TAG, "IP_EVENT: %d", (int)event_id);
 }
 
+static int ssize(const char* s)
+{
+    for (int i = 0; ; i++)
+        if (s[i] == 0)
+            return i;
+
+    return 0;
+}
+
 void WiFi::NativeSetup( const char* ssid, const char* password, HRESULT &hr )
 {
     // ESP_ERROR_CHECK(esp_netif_init());
@@ -51,12 +60,12 @@ void WiFi::NativeSetup( const char* ssid, const char* password, HRESULT &hr )
     memcpy(wifi_ap_config.ap.ssid, (const void*)ssid, sizeof(wifi_ap_config.ap.ssid));
     memcpy(wifi_ap_config.ap.password, (const void*)password, sizeof(wifi_ap_config.ap.password));
 
-    wifi_ap_config.ap.ssid_len = sizeof(ssid);
+    wifi_ap_config.ap.ssid_len = ssize(ssid);
     wifi_ap_config.ap.channel = WIFI_AP_CHANNEL;
     wifi_ap_config.ap.max_connection = WIFI_AP_MAX_CONN;
     wifi_ap_config.ap.pmf_cfg.required = false;
 
-    if (sizeof(password) == 0)
+    if (ssize(password) == 0)
         wifi_ap_config.ap.authmode = WIFI_AUTH_OPEN;
     else
         wifi_ap_config.ap.authmode = WIFI_AUTH_MODE;
