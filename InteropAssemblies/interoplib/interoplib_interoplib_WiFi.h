@@ -26,7 +26,11 @@ namespace interoplib
 
             static void NativeConnect( const char* param0, const char* param1, HRESULT &hr );
 
-            static void NativeStop(  HRESULT &hr );
+            static void NativeStop( HRESULT &hr );
+
+            static bool NativeGetStatus( HRESULT &hr );
+
+            static const char* NativeGetIPAddress( HRESULT &hr );
 
         };
     }

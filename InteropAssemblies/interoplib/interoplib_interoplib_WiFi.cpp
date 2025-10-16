@@ -15,6 +15,7 @@
 
 #include "interoplib_config.h"
 #include <esp_wifi.h>
+#include <esp_netif.h>
 
 #define LOG_TAG "interoplib WiFi"
 
@@ -40,9 +41,6 @@ static int ssize(const char* s)
 
 void WiFi::NativeSetup( const char* ssid, const char* password, HRESULT &hr )
 {
-    // ESP_ERROR_CHECK(esp_netif_init());
-    // ESP_ERROR_CHECK(esp_event_loop_create_default());
-
 	/* Initialize WiFi */
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
@@ -72,7 +70,7 @@ void WiFi::NativeSetup( const char* ssid, const char* password, HRESULT &hr )
 
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_ap_config));
 
-    ESP_LOGI(LOG_TAG, "wifi_init_softap finished. SSID:%s password:%s channel:%d", *ssid, *password, WIFI_AP_CHANNEL);
+    ESP_LOGI(LOG_TAG, "wifi_init_softap finished. SSID:%s password:%s channel:%d", ssid, password, WIFI_AP_CHANNEL);
 
 	/* Start WiFi */
 	hr = esp_wifi_start();
@@ -89,7 +87,7 @@ void WiFi::NativeConnect( const char* ssid, const char* password, HRESULT &hr )
     ////////////////////////////////
 }
 
-void WiFi::NativeStop(  HRESULT &hr )
+void WiFi::NativeStop( HRESULT &hr )
 {
     ////////////////////////////////
     // implementation starts here //
@@ -98,4 +96,34 @@ void WiFi::NativeStop(  HRESULT &hr )
 
     // implementation ends here   //
     ////////////////////////////////
+}
+
+bool WiFi::NativeGetStatus( HRESULT &hr )
+{
+    wifi_mode_t mode;
+    hr = esp_wifi_get_mode(&mode);
+    if (hr != ESP_OK)
+        return false;
+    
+    return (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA);
+}
+
+const char* WiFi::NativeGetIPAddress( HRESULT &hr )
+{
+    static char ip_str[16];
+    
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    if (netif == NULL)
+    {
+        hr = ESP_ERR_INVALID_STATE;
+        return "";
+    }
+    
+    esp_netif_ip_info_t ip_info;
+    hr = esp_netif_get_ip_info(netif, &ip_info);
+    if (hr != ESP_OK)
+        return "";
+    
+    snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&ip_info.ip));
+    return ip_str;
 }

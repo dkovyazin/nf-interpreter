@@ -37,6 +37,8 @@ struct Library_interoplib_interoplib_WiFi
     NANOCLR_NATIVE_DECLARE(NativeSetup___STATIC__VOID__STRING__STRING);
     NANOCLR_NATIVE_DECLARE(NativeConnect___STATIC__VOID__STRING__STRING);
     NANOCLR_NATIVE_DECLARE(NativeStop___STATIC__VOID);
+    NANOCLR_NATIVE_DECLARE(NativeGetStatus___STATIC__BOOLEAN);
+    NANOCLR_NATIVE_DECLARE(NativeGetIPAddress___STATIC__STRING);
 
     //--//
 };

@@ -53,8 +53,34 @@ HRESULT Library_interoplib_interoplib_WiFi::NativeStop___STATIC__VOID( CLR_RT_St
     NANOCLR_HEADER(); hr = S_OK;
     {
 
-        WiFi::NativeStop(  hr );
+        WiFi::NativeStop( hr );
         NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_WiFi::NativeGetStatus___STATIC__BOOLEAN( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        bool retVal = WiFi::NativeGetStatus( hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        stack.SetResult_Boolean( retVal );
+
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_WiFi::NativeGetIPAddress___STATIC__STRING( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        const char* retVal = WiFi::NativeGetIPAddress( hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        NANOCLR_CHECK_HRESULT( stack.SetResult_String( retVal ) );
 
     }
     NANOCLR_NOCLEANUP();
