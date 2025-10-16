@@ -32,6 +32,15 @@ struct Library_interoplib_interoplib_Utilities
     //--//
 };
 
+struct Library_interoplib_interoplib_WiFi
+{
+    NANOCLR_NATIVE_DECLARE(NativeSetup___STATIC__VOID__STRING__STRING);
+    NANOCLR_NATIVE_DECLARE(NativeConnect___STATIC__VOID__STRING__STRING);
+    NANOCLR_NATIVE_DECLARE(NativeStop___STATIC__VOID);
+
+    //--//
+};
+
 extern const CLR_RT_NativeAssemblyData g_CLR_AssemblyNative_interoplib;
 
 #endif // INTEROPLIB_H

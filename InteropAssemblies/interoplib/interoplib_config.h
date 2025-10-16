@@ -10,3 +10,7 @@
 #define BUFF_SIZE     STRIPS_CNT * 1000 * 3
 
 #define PROGRAM_TRANSITION_FPS 30
+
+#define WIFI_AUTH_MODE      WIFI_AUTH_WPA2_PSK
+#define WIFI_AP_CHANNEL     10
+#define WIFI_AP_MAX_CONN    50
