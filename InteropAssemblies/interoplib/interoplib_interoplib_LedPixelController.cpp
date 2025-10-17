@@ -17,15 +17,37 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
+#include <stdio.h>
+#include <string.h>
 
 using namespace interoplib::interoplib;
 
+static const int FRAME_BUFFER_COUNT = 15;
+static const char* TAG = "LedPixelController";
+
 static TaskHandle_t Task1;
+static TaskHandle_t ReaderTask;
 static spi_device_handle_t spi = NULL;
 static spi_host_device_t SPI_HOST = SPI2_HOST;
 static DMA_ATTR uint8_t DATA_BUFFER[BUFF_SIZE];
+static DMA_ATTR uint8_t FRAME_BUFFERS[FRAME_BUFFER_COUNT][BUFF_SIZE];
 static int LEDS_COUNT = 0;
 static int INIT_BUFFER_SIZE = 0;
+
+static volatile int writeFrameIndex = 0;
+static volatile int readFrameIndex = 0;
+static volatile int framesAvailable = 0;
+static SemaphoreHandle_t frameMutex = NULL;
+static SemaphoreHandle_t frameReadySemaphore = NULL;
+static SemaphoreHandle_t frameEmptySemaphore = NULL;
+
+static volatile bool isPlayingFromFile = false;
+static volatile bool stopPlayback = false;
+static volatile bool pausePlayback = false;
+static FILE* currentVideoFile = NULL;
+static int targetFps = PROGRAM_TRANSITION_FPS;
+static int totalFramesToPlay = 0;
+static int framesPlayed = 0;
 
 void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, signed int clkPin, signed int csPin, signed int pixelCount, uint8_t red, uint8_t green, uint8_t blue, HRESULT &hr  )
 {
@@ -49,6 +71,17 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
 
     LEDS_COUNT = pixelCount;
     INIT_BUFFER_SIZE = 4 * pixelCount * 3;
+
+    if (frameMutex == NULL) {
+        frameMutex = xSemaphoreCreateMutex();
+    }
+    if (frameReadySemaphore == NULL) {
+        frameReadySemaphore = xSemaphoreCreateCounting(FRAME_BUFFER_COUNT, 0);
+    }
+    if (frameEmptySemaphore == NULL) {
+        frameEmptySemaphore = xSemaphoreCreateCounting(FRAME_BUFFER_COUNT, FRAME_BUFFER_COUNT);
+    }
+
     spi_bus_config_t bus_cfg {
         mosi_io_num: 		mosiPin,
         miso_io_num: 		misoPin,
@@ -141,9 +174,222 @@ void LedPixelController::NativeSetPixel( uint8_t line, uint16_t cell, uint8_t re
     hr = S_OK;
 }
 
-void Task1code( void * pvParameters ) {
+void LedPixelController::NativePlayFromFile( CLR_RT_TypedArray_UINT8 filePath, signed int fps, signed int frameCount, HRESULT &hr )
+{
+    if (spi == NULL) {
+        ESP_LOGE(TAG, "SPI not initialized");
+        hr = CLR_E_NOT_SUPPORTED;
+        return;
+    }
+
+    if (isPlayingFromFile) {
+        ESP_LOGW(TAG, "Already playing, stopping previous playback");
+        LedPixelController::NativeStopPlayback(hr);
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    char* path = (char*)filePath.GetBuffer();
+    ESP_LOGI(TAG, "Opening file: %s, fps: %d, frames: %d", path, fps, frameCount);
+
+    currentVideoFile = fopen(path, "rb");
+    if (currentVideoFile == NULL) {
+        ESP_LOGE(TAG, "Failed to open file: %s", path);
+        hr = CLR_E_FILE_NOT_FOUND;
+        return;
+    }
+
+    writeFrameIndex = 0;
+    readFrameIndex = 0;
+    framesAvailable = 0;
+    framesPlayed = 0;
+    targetFps = (fps > 0) ? fps : PROGRAM_TRANSITION_FPS;
+    totalFramesToPlay = frameCount;
+    stopPlayback = false;
+    pausePlayback = false;
+    isPlayingFromFile = true;
+
+    if (frameReadySemaphore != NULL) {
+        xQueueReset(frameReadySemaphore);
+    }
+    if (frameEmptySemaphore != NULL) {
+        xQueueReset(frameEmptySemaphore);
+        for (int i = 0; i < FRAME_BUFFER_COUNT; i++) {
+            xSemaphoreGive(frameEmptySemaphore);
+        }
+    }
+
+    BaseType_t result = xTaskCreatePinnedToCore(
+        ReaderTaskCode,
+        "VideoReader",
+        8192,
+        NULL,
+        CONFIG_ESP32_PTHREAD_TASK_PRIO_DEFAULT + 1,
+        &ReaderTask,
+        0);
+
+    if (result != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create reader task");
+        fclose(currentVideoFile);
+        currentVideoFile = NULL;
+        isPlayingFromFile = false;
+        hr = CLR_E_FAIL;
+        return;
+    }
+
+    ESP_LOGI(TAG, "Playback started");
+    hr = S_OK;
+}
+
+void LedPixelController::NativeStopPlayback( HRESULT &hr )
+{
+    if (!isPlayingFromFile) {
+        hr = S_OK;
+        return;
+    }
+
+    ESP_LOGI(TAG, "Stopping playback");
+    stopPlayback = true;
+
+    int timeout = 50;
+    while (isPlayingFromFile && timeout > 0) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+        timeout--;
+    }
+
+    if (ReaderTask != NULL) {
+        vTaskDelete(ReaderTask);
+        ReaderTask = NULL;
+    }
+
+    if (currentVideoFile != NULL) {
+        fclose(currentVideoFile);
+        currentVideoFile = NULL;
+    }
+
+    isPlayingFromFile = false;
+    ESP_LOGI(TAG, "Playback stopped");
+    hr = S_OK;
+}
+
+bool LedPixelController::NativeIsPlaying( HRESULT &hr )
+{
+    hr = S_OK;
+    return isPlayingFromFile;
+}
+
+void LedPixelController::NativePausePlayback( HRESULT &hr )
+{
+    if (!isPlayingFromFile) {
+        hr = S_OK;
+        return;
+    }
+
+    ESP_LOGI(TAG, "Pausing playback");
+    pausePlayback = true;
+    hr = S_OK;
+}
+
+void LedPixelController::NativeResumePlayback( HRESULT &hr )
+{
+    if (!isPlayingFromFile) {
+        hr = S_OK;
+        return;
+    }
+
+    ESP_LOGI(TAG, "Resuming playback");
+    pausePlayback = false;
+    hr = S_OK;
+}
+
+signed int LedPixelController::NativeGetFramesPlayed( HRESULT &hr )
+{
+    hr = S_OK;
+    return framesPlayed;
+}
+
+void ReaderTaskCode(void* pvParameters) {
+    ESP_LOGI(TAG, "Reader task started");
+
+    while(!stopPlayback && framesPlayed < totalFramesToPlay) {
+        if (pausePlayback) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+
+        if (xSemaphoreTake(frameEmptySemaphore, pdMS_TO_TICKS(1000)) == pdTRUE) {
+            size_t bytesRead = fread(FRAME_BUFFERS[writeFrameIndex], 1, INIT_BUFFER_SIZE, currentVideoFile);
+            
+            if (bytesRead == INIT_BUFFER_SIZE) {
+                xSemaphoreTake(frameMutex, portMAX_DELAY);
+                writeFrameIndex = (writeFrameIndex + 1) % FRAME_BUFFER_COUNT;
+                framesAvailable++;
+                xSemaphoreGive(frameMutex);
+                
+                xSemaphoreGive(frameReadySemaphore);
+            }
+            else {
+                if (feof(currentVideoFile)) {
+                    stopPlayback = true;
+                }
+                else {
+                    ESP_LOGE(TAG, "Read error, bytes: %d", bytesRead);
+                }
+                xSemaphoreGive(frameEmptySemaphore);
+                break;
+            }
+        }
+    }
+
+    if (currentVideoFile != NULL) {
+        fclose(currentVideoFile);
+        currentVideoFile = NULL;
+    }
+
+    isPlayingFromFile = false;
+    ESP_LOGI(TAG, "Reader task finished, frames played: %d", framesPlayed);
+    vTaskDelete(NULL);
+}
+
+void Task1code(void* pvParameters) {
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    TickType_t frameDelay = pdMS_TO_TICKS(1000 / targetFps);
+
     while(1) {
-        spi_send_data(DATA_BUFFER, INIT_BUFFER_SIZE);
+        if (isPlayingFromFile) {
+            if (pausePlayback) {
+                vTaskDelay(pdMS_TO_TICKS(50));
+                lastWakeTime = xTaskGetTickCount();
+                continue;
+            }
+
+            frameDelay = pdMS_TO_TICKS(1000 / targetFps);
+
+            if (xSemaphoreTake(frameReadySemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
+                xSemaphoreTake(frameMutex, portMAX_DELAY);
+                int currentReadIndex = readFrameIndex;
+                readFrameIndex = (readFrameIndex + 1) % FRAME_BUFFER_COUNT;
+                framesAvailable--;
+                framesPlayed++;
+                xSemaphoreGive(frameMutex);
+
+                spi_send_data(FRAME_BUFFERS[currentReadIndex], INIT_BUFFER_SIZE);
+
+                xSemaphoreGive(frameEmptySemaphore);
+
+                vTaskDelayUntil(&lastWakeTime, frameDelay);
+            }
+            else {
+                if (stopPlayback && framesAvailable == 0) {
+                    ESP_LOGI(TAG, "Playback finished");
+                    isPlayingFromFile = false;
+                }
+                vTaskDelay(pdMS_TO_TICKS(10));
+            }
+        }
+        else {
+            spi_send_data(DATA_BUFFER, INIT_BUFFER_SIZE);
+            vTaskDelay(1);
+        }
     }
 
     vTaskDelete(NULL);

@@ -30,11 +30,24 @@ namespace interoplib
 
             static void NativeSetPixel( uint8_t param0, uint16_t param1, uint8_t param2, uint8_t param3, uint8_t param4, HRESULT &hr );
 
+            static void NativePlayFromFile( CLR_RT_TypedArray_UINT8 filePath, signed int fps, signed int frameCount, HRESULT &hr );
+
+            static void NativeStopPlayback( HRESULT &hr );
+
+            static bool NativeIsPlaying( HRESULT &hr );
+
+            static void NativePausePlayback( HRESULT &hr );
+
+            static void NativeResumePlayback( HRESULT &hr );
+
+            static signed int NativeGetFramesPlayed( HRESULT &hr );
+
         };
     }
 }
 
 void Task1code( void * pvParameters );
+void ReaderTaskCode( void * pvParameters );
 void spi_send_data(const uint8_t *data, int len);
 void spi_send_data2();
 

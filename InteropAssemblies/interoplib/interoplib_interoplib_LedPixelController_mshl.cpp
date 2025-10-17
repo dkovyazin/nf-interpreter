@@ -110,3 +110,86 @@ HRESULT Library_interoplib_interoplib_LedPixelController::NativeSetPixel___STATI
     }
     NANOCLR_NOCLEANUP();
 }
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativePlayFromFile___STATIC__VOID__SZARRAY_U1__I4__I4( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        CLR_RT_TypedArray_UINT8 param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8_ARRAY( stack, 0, param0 ) );
+
+        signed int param1;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_INT32( stack, 1, param1 ) );
+
+        signed int param2;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_INT32( stack, 2, param2 ) );
+
+        LedPixelController::NativePlayFromFile( param0, param1, param2, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeStopPlayback___STATIC__VOID( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        LedPixelController::NativeStopPlayback( hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeIsPlaying___STATIC__BOOLEAN( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        bool retVal = LedPixelController::NativeIsPlaying( hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        stack.SetResult_Boolean( retVal );
+
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativePausePlayback___STATIC__VOID( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        LedPixelController::NativePausePlayback( hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeResumePlayback___STATIC__VOID( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        LedPixelController::NativeResumePlayback( hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeGetFramesPlayed___STATIC__I4( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        signed int retVal = LedPixelController::NativeGetFramesPlayed( hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        stack.SetResult_I4( retVal );
+
+    }
+    NANOCLR_NOCLEANUP();
+}
