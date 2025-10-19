@@ -317,7 +317,7 @@ spi_device_interface_config_t GetConfig(const SPI_DEVICE_CONFIGURATION &spiDevic
         0,                   // cs_ena_posttrans
         clockHz,             // Clock speed in Hz
         0,                   // Input_delay_ns
-        SPI_SAMPLING_POINT_PHASE_0,
+        //SPI_SAMPLING_POINT_PHASE_0,
         -1,                  // Chip select, we will use manual chip select
         flags,               // SPI_DEVICE flags
         1,                   // Queue size
