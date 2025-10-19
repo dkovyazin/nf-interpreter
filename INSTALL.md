@@ -58,6 +58,14 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Unrestricted
 9. Добавьте переменную `IDF_TOOLS_PATH` со значением `C:\idf\.espressif`
 10. Удалите в `PATH` путь к Python `C:\idf\.espressif\tools\idf-python\3.11.2`
 
+```
+OPENOCD_SCRIPTS       C:\idf\.espressif\tools\openocd-esp32\v0.12.0-esp32-20241016\openocd-esp32\share\openocd\scripts
+IDF_CCACHE_ENABLE     1
+ESP_ROM_ELF_DIR       C:\idf\.espressif\tools\esp-rom-elfs\20230320\
+IDF_PYTHON_ENV_PATH   C:\idf\.espressif\python_env\idf5.2_py3.11_env
+ESP_IDF_VERSION       5.2
+```
+
 ## Настройка сборки стандартного Firmware
 
 Добавить в файл `.vscode/settings.json`:
