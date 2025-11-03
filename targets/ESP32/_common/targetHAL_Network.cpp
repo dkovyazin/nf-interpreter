@@ -25,7 +25,7 @@ extern esp_netif_t *WifiStationEspNetif;
 // #define 	PRINT_NET_EVENT 	1
 
 // buffer with host name
-char hostName[18] = "nanodevice_";
+char hostName[16] = "ltdevice_";
 
 //
 // Call-back from LWIP on event
@@ -123,7 +123,7 @@ static void compose_esp32_hostname()
     // compose host name with nanodevice and last 3 bytes of MAC address
     // nanodevice_XXXXXX
     uint8_t mac[6];
-    char *macPosition = hostName + 11;
+    char *macPosition = hostName + 9;
 
     // get MAC address
     esp_efuse_mac_get_default(mac);

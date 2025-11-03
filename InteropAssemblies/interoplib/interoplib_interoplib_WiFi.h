@@ -22,7 +22,7 @@ namespace interoplib
             // Helper Functions to access fields of managed object
             // Declaration of stubs. These functions are implemented by Interop code developers
 
-            static void NativeSetup( const char* param0, const char* param1, HRESULT &hr );
+            static void NativeSetupAP( const char* param0, const char* param1, HRESULT &hr );
 
             static void NativeConnect( const char* param0, const char* param1, HRESULT &hr );
 

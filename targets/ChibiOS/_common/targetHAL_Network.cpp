@@ -12,7 +12,7 @@
 extern "C" void set_signal_sock_function(void (*funcPtr)());
 
 // buffer with host name
-char hostName[18] = "nanodevice_";
+char hostName[16] = "ltdevice_";
 
 //
 // Callback from lwIP on event

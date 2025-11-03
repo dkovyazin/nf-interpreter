@@ -12,7 +12,7 @@
 using namespace interoplib::interoplib;
 
 
-HRESULT Library_interoplib_interoplib_WiFi::NativeSetup___STATIC__VOID__STRING__STRING( CLR_RT_StackFrame& stack )
+HRESULT Library_interoplib_interoplib_WiFi::NativeSetupAP___STATIC__VOID__STRING__STRING( CLR_RT_StackFrame& stack )
 {
     NANOCLR_HEADER(); hr = S_OK;
     {
@@ -23,7 +23,7 @@ HRESULT Library_interoplib_interoplib_WiFi::NativeSetup___STATIC__VOID__STRING__
         const char* param1;
         NANOCLR_CHECK_HRESULT( Interop_Marshal_LPCSTR( stack, 1, param1 ) );
 
-        WiFi::NativeSetup( param0, param1, hr );
+        WiFi::NativeSetupAP( param0, param1, hr );
         NANOCLR_CHECK_HRESULT( hr );
 
     }
