@@ -23,7 +23,16 @@
                 "TARGET_NAME": "${presetName}",
                 "SDK_CONFIG_FILE": "sdkconfig.default_lt_v1.esp32s3",
                 "NF_BUILD_RTM": "ON",
+                "API_System.Device.Adc": "OFF",
+                "API_nanoFramework.Networking.Thread": "OFF",
+                "API_nanoFramework.Device.Bluetooth": "OFF",
+                "API_nanoFramework.Device.OneWire": "OFF",
+                "API_nanoFramework.Device.Can": "OFF",
                 "API_nanoFramework.Graphics": "OFF",
+                "API_Hardware.Stm32": "OFF",
+                "API_System.Device.I2c": "OFF",
+                "API_System.Device.I2c.Slave": "OFF",
+                "API_System.Device.I2s": "OFF",
                 "NF_INTEROP_ASSEMBLIES": "interoplib"
             }
         },
@@ -38,7 +47,16 @@
                 "TARGET_NAME": "${presetName}",
                 "SDK_CONFIG_FILE": "sdkconfig.default_lt_v1.esp32s3",
                 "NF_BUILD_RTM": "OFF",
+                "API_System.Device.Adc": "OFF",
+                "API_nanoFramework.Networking.Thread": "OFF",
+                "API_nanoFramework.Device.Bluetooth": "OFF",
+                "API_nanoFramework.Device.OneWire": "OFF",
+                "API_nanoFramework.Device.Can": "OFF",
                 "API_nanoFramework.Graphics": "OFF",
+                "API_Hardware.Stm32": "OFF",
+                "API_System.Device.I2c": "OFF",
+                "API_System.Device.I2c.Slave": "OFF",
+                "API_System.Device.I2s": "OFF",
                 "NF_INTEROP_ASSEMBLIES": "interoplib"
             }
         },
@@ -53,7 +71,16 @@
                 "TARGET_NAME": "${presetName}",
                 "SDK_CONFIG_FILE": "sdkconfig.default_lt_v2.esp32s3",
                 "NF_BUILD_RTM": "ON",
+                "API_System.Device.Adc": "OFF",
+                "API_nanoFramework.Networking.Thread": "OFF",
+                "API_nanoFramework.Device.Bluetooth": "OFF",
+                "API_nanoFramework.Device.OneWire": "OFF",
+                "API_nanoFramework.Device.Can": "OFF",
                 "API_nanoFramework.Graphics": "OFF",
+                "API_Hardware.Stm32": "OFF",
+                "API_System.Device.I2c": "OFF",
+                "API_System.Device.I2c.Slave": "OFF",
+                "API_System.Device.I2s": "OFF",
                 "NF_INTEROP_ASSEMBLIES": "interoplib"
             }
         },
@@ -68,7 +95,16 @@
                 "TARGET_NAME": "${presetName}",
                 "SDK_CONFIG_FILE": "sdkconfig.default_lt_v2.esp32s3",
                 "NF_BUILD_RTM": "OFF",
+                "API_System.Device.Adc": "OFF",
+                "API_nanoFramework.Networking.Thread": "OFF",
+                "API_nanoFramework.Device.Bluetooth": "OFF",
+                "API_nanoFramework.Device.OneWire": "OFF",
+                "API_nanoFramework.Device.Can": "OFF",
                 "API_nanoFramework.Graphics": "OFF",
+                "API_Hardware.Stm32": "OFF",
+                "API_System.Device.I2c": "OFF",
+                "API_System.Device.I2c.Slave": "OFF",
+                "API_System.Device.I2s": "OFF",
                 "NF_INTEROP_ASSEMBLIES": "interoplib"
             }
         }

@@ -64,5 +64,5 @@ void app_main()
     xTaskCreatePinnedToCore(&receiver_task, "ReceiverThread", 3072, NULL, 5, NULL, 0);
 
     // start the CLR main task pinned to core 0
-    xTaskCreatePinnedToCore(&main_task, "main_task", 15000, NULL, 5, NULL, 1);
+    xTaskCreatePinnedToCore(&main_task, "main_task", 15000, NULL, 5, NULL, 0);
 }
