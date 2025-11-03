@@ -3,7 +3,7 @@ REM If already running it will fail and exit, leaving the existing one to handle
 REM Template allows for multiple target interfaces and boards - add new ones as required
 REM DAV 26FEB19
 setlocal
-set cmd=C:/nf/ESP32/openocd-esp32/bin/openocd.exe -s C:/nf/ESP32/openocd-esp32/share/openocd/scripts
+set cmd=C:/idf/.espressif/tools/openocd-esp32/v0.12.0-esp32-20240821/openocd-esp32/bin/openocd.exe -s C:/idf/.espressif/tools/openocd-esp32/v0.12.0-esp32-20240821/openocd-esp32/share/openocd/scripts/
 
 if %1.==. goto ESP32_JLINK
 call :%1
@@ -26,23 +26,5 @@ goto end
 REM Add additional interface/board combinations here, and add the label to the launch.vs.json file
 
 :ESP32_JLINK
-set iface=-f interface/jlink.cfg -f target/esp32.cfg -c "adapter_khz 3000"
+set iface=-f interface/esp_usb_bridge.cfg -f target/esp32s3.cfg -c "adapter_khz 3000"
 goto start
-
-:ESP32_OLIMEX
-set iface=-f interface/ftdi/olimex-arm-usb-ocd-h.cfg -f target/esp32.cfg -c "adapter_khz 3000"
-goto start
-
-:ESP32_WROVER
-set iface=-f interface/ftdi/esp32_devkitj_v1.cfg -f board/esp32-wrover.cfg 
-goto start
-
-:STM32_STLINK
-REM Note: I tried using the Eclipse OpenOCD without much success here, then switched to the ESP32 version, and it works right out of the box!
-REM set cmd=C:/nanoFramework_Tools/Tools/openocd/bin/openocd.exe -s C:/nanoFramework_Tools/Tools/openocd/bin/scripts
-set iface=-f interface/stlink-v2-1.cfg -f board/stm32f7discovery.cfg
-goto start
-
-
-
-
