@@ -12,7 +12,7 @@
 using namespace interoplib::interoplib;
 
 
-HRESULT Library_interoplib_interoplib_Utilities::NativeGetHardwareSerial___STATIC__VOID__SZARRAY_U1( CLR_RT_StackFrame& stack )
+HRESULT Library_interoplib_interoplib_Utilities::NativeGetBaseMac___STATIC__VOID__SZARRAY_U1( CLR_RT_StackFrame& stack )
 {
     NANOCLR_HEADER(); hr = S_OK;
     {
@@ -20,7 +20,7 @@ HRESULT Library_interoplib_interoplib_Utilities::NativeGetHardwareSerial___STATI
         CLR_RT_TypedArray_UINT8 param0;
         NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8_ARRAY( stack, 0, param0 ) );
 
-        Utilities::NativeGetHardwareSerial( param0, hr );
+        Utilities::NativeGetBaseMac( param0, hr );
         NANOCLR_CHECK_HRESULT( hr );
 
     }

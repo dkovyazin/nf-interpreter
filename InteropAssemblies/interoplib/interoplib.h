@@ -25,9 +25,9 @@ struct Library_interoplib_interoplib_LedPixelController
 
 struct Library_interoplib_interoplib_Utilities
 {
-    static const int FIELD_STATIC___hardwareSerial = 0;
+    static const int FIELD_STATIC___baseMac = 0;
 
-    NANOCLR_NATIVE_DECLARE(NativeGetHardwareSerial___STATIC__VOID__SZARRAY_U1);
+    NANOCLR_NATIVE_DECLARE(NativeGetBaseMac___STATIC__VOID__SZARRAY_U1);
 
     //--//
 };
