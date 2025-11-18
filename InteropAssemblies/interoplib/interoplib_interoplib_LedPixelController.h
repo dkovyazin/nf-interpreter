@@ -24,6 +24,12 @@ namespace interoplib
 
             static void NativeInit( signed int param0, signed int param1, signed int param2, signed int param3, signed int param4, uint8_t param5, uint8_t param6, uint8_t param7, HRESULT &hr );
 
+            static void NativePrepareForPlay( uint16_t param0, CLR_RT_TypedArray_UINT8 param1, HRESULT &hr );
+
+            static void NativeStartPlay( uint16_t param0, uint8_t param1, HRESULT &hr );
+
+            static void NativeWriteToPlayBuffer( uint16_t param0, CLR_RT_TypedArray_UINT8 param1, HRESULT &hr );
+
             static void NativeWrite( CLR_RT_TypedArray_UINT8 param0, HRESULT &hr );
 
             static void NativeSetFull( uint8_t param0, uint8_t param1, uint8_t param2, HRESULT &hr );
@@ -34,8 +40,10 @@ namespace interoplib
     }
 }
 
-void Task1code( void * pvParameters );
+void LedTask_Start(uint16_t countFrames, uint8_t fps);
+void LedTask_Stop();
+void LedTask_Join();
+void LedTask_Handler( void * pvParameters );
 void spi_send_data(const uint8_t *data, int len);
-void spi_send_data2();
 
 #endif // INTEROPLIB_INTEROPLIB_INTEROPLIB_LEDPIXELCONTROLLER_H
