@@ -23,7 +23,7 @@ static const CLR_RT_MethodHandler method_lookup[] =
     Library_interoplib_interoplib_LedPixelController::NativeInit___STATIC__VOID__I4__I4__I4__I4__I4__U1__U1__U1,
     Library_interoplib_interoplib_LedPixelController::NativeSetBrightness___STATIC__VOID__U1,
     Library_interoplib_interoplib_LedPixelController::NativePrepareForPlay___STATIC__VOID__U2__SZARRAY_U1,
-    Library_interoplib_interoplib_LedPixelController::NativeStartPlay___STATIC__VOID__U2__U1,
+    Library_interoplib_interoplib_LedPixelController::NativeStartPlay___STATIC__VOID__U2__U1__U2,
     Library_interoplib_interoplib_LedPixelController::NativeWriteToPlayBuffer___STATIC__VOID__U2__SZARRAY_U1,
     Library_interoplib_interoplib_LedPixelController::NativeWrite___STATIC__VOID__SZARRAY_U1,
     Library_interoplib_interoplib_LedPixelController::NativeSetFull___STATIC__VOID__U1__U1__U1,
@@ -36,7 +36,7 @@ static const CLR_RT_MethodHandler method_lookup[] =
 const CLR_RT_NativeAssemblyData g_CLR_AssemblyNative_interoplib =
 {
     "interoplib",
-    0xE1FAFCA6,
+    0x70991743,
     method_lookup,
     { 2, 0, 0, 0 }
 };

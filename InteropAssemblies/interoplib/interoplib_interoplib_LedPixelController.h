@@ -28,7 +28,7 @@ namespace interoplib
 
             static void NativePrepareForPlay( uint16_t param0, CLR_RT_TypedArray_UINT8 param1, HRESULT &hr );
 
-            static void NativeStartPlay( uint16_t param0, uint8_t param1, HRESULT &hr );
+            static void NativeStartPlay( uint16_t param0, uint8_t param1, uint16_t param2, HRESULT &hr );
 
             static void NativeWriteToPlayBuffer( uint16_t param0, CLR_RT_TypedArray_UINT8 param1, HRESULT &hr );
 
@@ -42,7 +42,7 @@ namespace interoplib
     }
 }
 
-void LedTask_Start(uint16_t countFrames, uint8_t fps);
+void LedTask_Start(uint16_t countFrames, uint8_t fps, uint16_t transition);
 void LedTask_Stop();
 void LedTask_Join();
 void LedTask_Handler( void * pvParameters );

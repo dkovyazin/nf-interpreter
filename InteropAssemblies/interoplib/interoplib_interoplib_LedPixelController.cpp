@@ -46,10 +46,11 @@ static SemaphoreHandle_t writeSemaphore = NULL;
 struct LedTaskParams {
     uint8_t fps;
     uint16_t countFrames;
+    uint16_t transition;
 };
 static LedTaskParams params;
 
-static volatile uint8_t brightness = 100;
+static volatile uint8_t brightness = 255;
 
 class Transition {
     public:
@@ -71,7 +72,9 @@ class Transition {
             }
         }
 };
-//static Transition transition;
+
+static uint8_t* lastRawFrame;
+static Transition transitionFrame;
 
 void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, signed int clkPin, signed int csPin, signed int pixelCount, uint8_t red, uint8_t green, uint8_t blue, HRESULT &hr  )
 {
@@ -90,6 +93,8 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
     memset(PREPARE_BUFFERS, 0, BUFFER_FRAMES_COUNT * FRAME_SIZE);
     memset(PROGRAM1_BUFFERS, 0, BUFFER_FRAMES_COUNT * FRAME_SIZE);
     memset(PROGRAM2_BUFFERS, 0, BUFFER_FRAMES_COUNT * FRAME_SIZE);
+
+    lastRawFrame = new uint8_t[FRAME_SIZE];
 
     esp_err_t ret;
 
@@ -186,7 +191,7 @@ void LedPixelController::NativePrepareForPlay( uint16_t frame, CLR_RT_TypedArray
     hr = S_OK;
 }
 
-void LedPixelController::NativeStartPlay( uint16_t countFrames, uint8_t fps, HRESULT &hr )
+void LedPixelController::NativeStartPlay( uint16_t countFrames, uint8_t fps, uint16_t transition, HRESULT &hr )
 {
     if (spi == NULL) {
         hr = S_FALSE;
@@ -201,7 +206,7 @@ void LedPixelController::NativeStartPlay( uint16_t countFrames, uint8_t fps, HRE
     LedTask_Stop();
     LedTask_Join();
 
-    LedTask_Start(countFrames, fps);
+    LedTask_Start(countFrames, fps, transition);
 
     hr = S_OK;
 }
@@ -306,12 +311,14 @@ void LedPixelController::NativeSetPixel( uint8_t line, uint16_t cell, uint8_t re
     hr = S_OK;
 }
 
-void LedTask_Start(uint16_t countFrames, uint8_t fps) {
+void LedTask_Start(uint16_t countFrames, uint8_t fps, uint16_t transition)
+{
     CS_BEGIN(bodySemaphore);
 
     if (!running) {
         params.fps = fps;
         params.countFrames = countFrames;
+        params.transition = transition;
 
         xTaskCreatePinnedToCore(
             LedTask_Handler,                                  /* Функция задачи. */
@@ -327,7 +334,8 @@ void LedTask_Start(uint16_t countFrames, uint8_t fps) {
     CS_END(bodySemaphore);
 }
 
-void LedTask_Stop() {
+void LedTask_Stop()
+{
     CS_BEGIN(bodySemaphore);
 
     if (running) {
@@ -338,20 +346,35 @@ void LedTask_Stop() {
     CS_END(bodySemaphore);
 }
 
-void LedTask_Join() {
+void LedTask_Join()
+{
     assert(xSemaphoreTake(joinSemaphore, portMAX_DELAY) == pdTRUE);
     assert(xSemaphoreGive(joinSemaphore) == pdTRUE);
 }
 
-void LedTask_Handler( void * pvParameters ) {
+void LedTask_Handler( void * pvParameters )
+{
     LedTaskParams* taskParams = (LedTaskParams*) pvParameters;
+
+    uint16_t transitionTime = taskParams->transition;
+    if (1000 / taskParams->fps < transitionTime) {
+        transitionFrame.lenght = transitionTime / (1000 / PROGRAM_TRANSITION_FPS);
+        transitionFrame.lenght += 1; // for first frame of next program
+        transitionFrame.current = 0;
+
+        memcpy(transitionFrame.to, PREPARE_BUFFERS, FRAME_SIZE);
+        memcpy(transitionFrame.from, lastRawFrame, FRAME_SIZE);
+    } else
+        transitionFrame.lenght = 0;
 
     CS_BEGIN(bodySemaphore);
     running = true;
+    const TickType_t programTimeIncrement = 1000.0 / taskParams->fps / portTICK_PERIOD_MS;
+    const TickType_t transitionTimeIncrement = 1000.0 / PROGRAM_TRANSITION_FPS / portTICK_PERIOD_MS;
     CS_END(bodySemaphore);
 
 	TickType_t lastWakeTime = xTaskGetTickCount();
-    TickType_t frameDelay = pdMS_TO_TICKS(1000 / taskParams->fps);
+    //TickType_t frameDelay = pdMS_TO_TICKS(1000 / taskParams->fps);
 
     // выбираем буфер воспроизведения, куда скопируем буфер подготовки
     uint8_t* buffer;
@@ -419,10 +442,16 @@ void LedTask_Handler( void * pvParameters ) {
 
         // передаём кадр на ленту
         int offset = bufferFrameIndex * FRAME_SIZE;
-        memcpy(FRAME_BUFFER, buffer + offset, FRAME_SIZE);
+        //memcpy(FRAME_BUFFER, buffer + offset, FRAME_SIZE);
+
+        TickType_t xTimeIncrement = transitionTimeIncrement;
+        if (!transitionFrame.getNextFrame(lastRawFrame)) {
+            memcpy(lastRawFrame, buffer + offset, FRAME_SIZE);
+            xTimeIncrement = programTimeIncrement;
+        }
 
         for (int i = 0; i < BUFF_SIZE; i++)
-            FRAME_BUFFER[i] = FRAME_BUFFER[i] * brightness / 0xFF;
+            FRAME_BUFFER[i] = lastRawFrame[i] * brightness / 0xFF;
 
         spi_send_data(FRAME_BUFFER, FRAME_SIZE);
 
@@ -433,7 +462,7 @@ void LedTask_Handler( void * pvParameters ) {
 
         if (exit) break;
 
-		vTaskDelayUntil(&lastWakeTime, frameDelay);
+		vTaskDelayUntil(&lastWakeTime, xTimeIncrement);
 
         bufferFrameIndex++;
 
@@ -452,7 +481,8 @@ void LedTask_Handler( void * pvParameters ) {
     vTaskDelete(NULL);
 }
 
-void spi_send_data(const uint8_t *data, int len) {
+void spi_send_data(const uint8_t *data, int len)
+{
 	uint32_t offset = 0;
 	do {
         int tx_len = len;//((len - offset) < SPI_MAX_DMA_LEN) ? (len - offset) : SPI_MAX_DMA_LEN;

@@ -81,7 +81,7 @@ HRESULT Library_interoplib_interoplib_LedPixelController::NativePrepareForPlay__
     NANOCLR_NOCLEANUP();
 }
 
-HRESULT Library_interoplib_interoplib_LedPixelController::NativeStartPlay___STATIC__VOID__U2__U1( CLR_RT_StackFrame& stack )
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeStartPlay___STATIC__VOID__U2__U1__U2( CLR_RT_StackFrame& stack )
 {
     NANOCLR_HEADER(); hr = S_OK;
     {
@@ -92,7 +92,10 @@ HRESULT Library_interoplib_interoplib_LedPixelController::NativeStartPlay___STAT
         uint8_t param1;
         NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 1, param1 ) );
 
-        LedPixelController::NativeStartPlay( param0, param1, hr );
+        uint16_t param2;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT16( stack, 2, param2 ) );
+
+        LedPixelController::NativeStartPlay( param0, param1, param2, hr );
         NANOCLR_CHECK_HRESULT( hr );
 
     }
