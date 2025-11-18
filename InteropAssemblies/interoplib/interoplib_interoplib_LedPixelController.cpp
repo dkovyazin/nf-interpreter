@@ -420,7 +420,6 @@ void LedTask_Handler( void * pvParameters ) {
 
         if (exit) break;
 
-        vTaskDelay(1);
 		vTaskDelayUntil(&lastWakeTime, frameDelay);
 
         bufferFrameIndex++;
@@ -454,4 +453,6 @@ void spi_send_data(const uint8_t *data, int len) {
 		offset += tx_len;
 		break;
 	} while (offset < len);
+
+    vTaskDelay(1);
 }
