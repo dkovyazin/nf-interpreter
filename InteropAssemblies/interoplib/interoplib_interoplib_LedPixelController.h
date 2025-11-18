@@ -24,6 +24,8 @@ namespace interoplib
 
             static void NativeInit( signed int param0, signed int param1, signed int param2, signed int param3, signed int param4, uint8_t param5, uint8_t param6, uint8_t param7, HRESULT &hr );
 
+            static void NativeSetBrightness( uint8_t param0, HRESULT &hr );
+
             static void NativePrepareForPlay( uint16_t param0, CLR_RT_TypedArray_UINT8 param1, HRESULT &hr );
 
             static void NativeStartPlay( uint16_t param0, uint8_t param1, HRESULT &hr );

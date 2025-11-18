@@ -49,6 +49,8 @@ struct LedTaskParams {
 };
 static LedTaskParams params;
 
+static volatile uint8_t brightness = 100;
+
 class Transition {
     public:
         uint8_t current;
@@ -149,6 +151,13 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
     LedPixelController::NativeSetFull(red, green, blue, hr);
     if (hr != S_OK)
         return;
+
+    hr = S_OK;
+}
+
+void LedPixelController::NativeSetBrightness( uint8_t value, HRESULT &hr )
+{
+    brightness = value;
 
     hr = S_OK;
 }
@@ -411,6 +420,10 @@ void LedTask_Handler( void * pvParameters ) {
         // передаём кадр на ленту
         int offset = bufferFrameIndex * FRAME_SIZE;
         memcpy(FRAME_BUFFER, buffer + offset, FRAME_SIZE);
+
+        for (int i = 0; i < BUFF_SIZE; i++)
+            FRAME_BUFFER[i] = FRAME_BUFFER[i] * brightness / 0xFF;
+
         spi_send_data(FRAME_BUFFER, FRAME_SIZE);
 
         bool exit = requestedForStop;

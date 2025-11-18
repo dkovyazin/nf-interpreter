@@ -48,6 +48,21 @@ HRESULT Library_interoplib_interoplib_LedPixelController::NativeInit___STATIC__V
     NANOCLR_NOCLEANUP();
 }
 
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeSetBrightness___STATIC__VOID__U1( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        uint8_t param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 0, param0 ) );
+
+        LedPixelController::NativeSetBrightness( param0, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}
+
 HRESULT Library_interoplib_interoplib_LedPixelController::NativePrepareForPlay___STATIC__VOID__U2__SZARRAY_U1( CLR_RT_StackFrame& stack )
 {
     NANOCLR_HEADER(); hr = S_OK;
