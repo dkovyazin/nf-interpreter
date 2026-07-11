@@ -1,12 +1,11 @@
-
+﻿
 //
 // Copyright (c) .NET Foundation and Contributors
 // See LICENSE file in the project root for full license information.
 //
 
 #include "NF_ESP32_Network.h"
-#include <esp32_ethernet_options.h>
-
+#include <esp_wifi_types.h>
 //
 // Works with the Target_NetworkConfig to map the Network_Interface_XXXXX calls to the correct driver
 
@@ -45,7 +44,7 @@ int Network_Interface_Open(int index)
 
     switch (networkConfiguration.InterfaceType)
     {
-#if defined(CONFIG_SOC_WIFI_SUPPORTED)
+#if defined(CONFIG_SOC_WIFI_SUPPORTED) || defined(CONFIG_SOC_WIRELESS_HOST_SUPPORTED)
         // Wi-Fi (STA)
         case NetworkInterfaceType_Wireless80211:
             return NF_ESP32_Wireless_Open(&networkConfiguration);
@@ -55,7 +54,7 @@ int Network_Interface_Open(int index)
             return NF_ESP32_WirelessAP_Open(&networkConfiguration);
 #endif
 
-#ifdef ESP32_ETHERNET_SUPPORT
+#if defined(CONFIG_ESP32_ETHERNET_SUPPORT) && CONFIG_ESP32_ETHERNET_SUPPORT == TRUE
         // Ethernet
         case NetworkInterfaceType_Ethernet:
             return NF_ESP32_Ethernet_Open(&networkConfiguration);
@@ -90,7 +89,7 @@ bool Network_Interface_Close(int index)
 
     switch (networkConfiguration.InterfaceType)
     {
-#if defined(CONFIG_SOC_WIFI_SUPPORTED)
+#if defined(CONFIG_SOC_WIFI_SUPPORTED) || defined(CONFIG_SOC_WIRELESS_HOST_SUPPORTED)
         // Wireless
         case NetworkInterfaceType_Wireless80211:
             return NF_ESP32_Wireless_Close();
@@ -100,7 +99,7 @@ bool Network_Interface_Close(int index)
             return NF_ESP32_WirelessAP_Close();
 #endif
 
-#ifdef ESP32_ETHERNET_SUPPORT
+#if defined(CONFIG_ESP32_ETHERNET_SUPPORT) && CONFIG_ESP32_ETHERNET_SUPPORT == TRUE
         // Ethernet
         case NetworkInterfaceType_Ethernet:
             return NF_ESP32_Ethernet_Close();
@@ -116,7 +115,7 @@ bool Network_Interface_Close(int index)
     return false;
 }
 
-#if defined(CONFIG_SOC_WIFI_SUPPORTED)
+#if defined(CONFIG_SOC_WIFI_SUPPORTED) || defined(CONFIG_SOC_WIRELESS_HOST_SUPPORTED)
 int Network_Interface_Start_Scan(int index)
 {
     HAL_Configuration_NetworkInterface networkConfiguration;

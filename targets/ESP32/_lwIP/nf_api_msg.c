@@ -1,10 +1,48 @@
 //
 // Copyright (c) .NET Foundation and Contributors
-// Portions Copyright (c) 2001-2004 Swedish Institute of Computer Science.  All rights reserved.
-// See LICENSE file in the project root for full license information.
 //
 
+/**
+ * @file
+ * Sequential API Internal module
+ *
+ */
+
+/*
+ * Copyright (c) 2001-2004 Swedish Institute of Computer Science.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * 3. The name of the author may not be used to endorse or promote products
+ *    derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
+ * OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
+ * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
+ * OF SUCH DAMAGE.
+ *
+ * This file is part of the lwIP TCP/IP stack.
+ *
+ * Author: Adam Dunkels <adam@sics.se>
+ *
+ */
+
+// [NF_CHANGE]
 #include <nanoHAL_Network.h>
+// [END_NF_CHANGE]
 #include "lwip/opt.h"
 
 #if LWIP_NETCONN /* don't build if not configured for use in lwipopts.h */
@@ -74,7 +112,7 @@ static void netconn_drain(struct netconn *conn);
 #endif /* LWIP_TCPIP_CORE_LOCKING */
 
 #if LWIP_NETCONN_FULLDUPLEX
-const u8_t netconn_deleted = 0;
+static const u8_t netconn_deleted = 0;
 
 int lwip_netconn_is_deallocated_msg(void *msg)
 {
@@ -87,9 +125,9 @@ int lwip_netconn_is_deallocated_msg(void *msg)
 #endif /* LWIP_NETCONN_FULLDUPLEX */
 
 #if LWIP_TCP
-const u8_t netconn_aborted = 0;
-const u8_t netconn_reset = 0;
-const u8_t netconn_closed = 0;
+static const u8_t netconn_aborted = 0;
+static const u8_t netconn_reset = 0;
+static const u8_t netconn_closed = 0;
 
 /** Translate an error to a unique void* passed via an mbox */
 static void *lwip_netconn_err_to_msg(err_t err)
@@ -208,6 +246,7 @@ static void recv_udp(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_ad
     struct netbuf *buf;
     struct netconn *conn;
     u16_t len;
+    err_t err;
 #if LWIP_SO_RCVBUF
     int recv_avail;
 #endif /* LWIP_SO_RCVBUF */
@@ -273,9 +312,11 @@ static void recv_udp(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_ad
     }
 
     len = p->tot_len;
-    if (sys_mbox_trypost(&conn->recvmbox, buf) != ERR_OK)
+    err = sys_mbox_trypost(&conn->recvmbox, buf);
+    if (err != ERR_OK)
     {
         netbuf_delete(buf);
+        LWIP_DEBUGF(API_MSG_DEBUG, ("recv_udp: sys_mbox_trypost failed, err=%d\n", err));
         return;
     }
     else
@@ -494,7 +535,7 @@ static void err_tcp(void *arg, err_t err)
     /* pass error message to acceptmbox to wake up pending accept */
     if (NETCONN_MBOX_VALID(conn, &conn->acceptmbox))
     {
-        /* use trypost to preven deadlock */
+        /* use trypost to prevent deadlock */
         sys_mbox_trypost(&conn->acceptmbox, mbox_msg);
     }
 
@@ -521,7 +562,7 @@ static void err_tcp(void *arg, err_t err)
                 conn->current_msg->err = err;
             }
             op_completed_sem = LWIP_API_MSG_SEM(conn->current_msg);
-            LWIP_ASSERT("inavlid op_completed_sem", sys_sem_valid(op_completed_sem));
+            LWIP_ASSERT("invalid op_completed_sem", sys_sem_valid(op_completed_sem));
             conn->current_msg = NULL;
             /* wake up the waiting task */
             sys_sem_signal(op_completed_sem);
@@ -824,10 +865,8 @@ struct netconn *netconn_alloc(enum netconn_type t, netconn_callback callback)
     sys_mbox_set_invalid(&conn->acceptmbox);
 #endif
     conn->state = NETCONN_NONE;
-#if LWIP_SOCKET
     /* initialize socket to -1 since 0 is a valid socket */
-    conn->socket = -1;
-#endif /* LWIP_SOCKET */
+    conn->callback_arg.socket = -1;
     conn->callback = callback;
 #if LWIP_TCP
     conn->current_msg = NULL;
@@ -1086,10 +1125,11 @@ static err_t lwip_netconn_do_close_internal(struct netconn *conn WRITE_DELAYED_P
     if (shut_close)
     {
 #if LWIP_SO_LINGER
-        /* check linger possibilites before calling tcp_close */
+        /* check linger possibilities before calling tcp_close */
         err = ERR_OK;
         /* linger enabled/required at all? (i.e. is there untransmitted data left?) */
-        if ((conn->linger >= 0) && (conn->pcb.tcp->unsent || conn->pcb.tcp->unacked))
+        /* listen PCBs never have pending data; skip linger check to avoid calling tcp_abort on a listen PCB */
+        if ((tpcb->state != LISTEN) && (conn->linger >= 0) && (conn->pcb.tcp->unsent || conn->pcb.tcp->unacked))
         {
             if (conn->linger == 0)
             {
@@ -1598,10 +1638,7 @@ void lwip_netconn_do_connect(void *m)
                 break;
 #endif /* LWIP_TCP */
             default:
-                LWIP_ERROR(
-                    "Invalid netconn type",
-                    0,
-                    do { err = ERR_VAL; } while (0));
+                LWIP_ERROR("Invalid netconn type", 0, do { err = ERR_VAL; } while (0));
                 break;
         }
     }
@@ -1672,7 +1709,7 @@ void lwip_netconn_do_listen(void *m)
                     /* "Socket API like" dual-stack support: If IP to listen to is IP6_ADDR_ANY,
                      * and NETCONN_FLAG_IPV6_V6ONLY is NOT set, use IP_ANY_TYPE to listen
                      */
-                    if (ip_addr_cmp(&msg->conn->pcb.ip->local_ip, IP6_ADDR_ANY) &&
+                    if (ip_addr_eq(&msg->conn->pcb.ip->local_ip, IP6_ADDR_ANY) &&
                         (netconn_get_ipv6only(msg->conn) == 0))
                     {
                         /* change PCB type to IPADDR_TYPE_ANY */
@@ -2462,6 +2499,7 @@ done:
  */
 static void lwip_netconn_do_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
 {
+    u8_t i;
     struct dns_api_msg *msg = (struct dns_api_msg *)arg;
 
     /* we trust the internal implementation to be correct :-) */
@@ -2476,7 +2514,11 @@ static void lwip_netconn_do_dns_found(const char *name, const ip_addr_t *ipaddr,
     {
         /* address was resolved */
         API_EXPR_DEREF(msg->err) = ERR_OK;
-        API_EXPR_DEREF(msg->addr) = *ipaddr;
+
+        for (i = 0; i < DNS_MAX_HOST_IP; i++)
+        {
+            API_EXPR_DEREF(msg->addr + i) = *(ipaddr + i);
+        }
     }
     /* wake up the application task waiting in netconn_gethostbyname */
     sys_sem_signal(API_EXPR_REF_SEM(msg->sem));

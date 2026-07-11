@@ -12,12 +12,12 @@ list(APPEND System.Device.Adc_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/src/CLR/Core)
 list(APPEND System.Device.Adc_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/src/CLR/Include)
 list(APPEND System.Device.Adc_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/src/HAL/Include)
 list(APPEND System.Device.Adc_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/src/PAL/Include)
+list(APPEND System.Device.Adc_INCLUDE_DIRS ${TARGET_BASE_LOCATION})
 list(APPEND System.Device.Adc_INCLUDE_DIRS ${BASE_PATH_FOR_THIS_MODULE})
 list(APPEND System.Device.Adc_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/src/System.Device.Adc)
 
 # source files
 set(System.Device.Adc_SRCS
-
     sys_dev_adc_native.cpp
 
     sys_dev_adc_native_System_Device_Adc_AdcChannel.cpp
@@ -32,8 +32,8 @@ foreach(SRC_FILE ${System.Device.Adc_SRCS})
     
     find_file(System.Device.Adc_SRC_FILE ${SRC_FILE}
         PATHS
-	        ${BASE_PATH_FOR_THIS_MODULE}
 	        ${TARGET_BASE_LOCATION}
+	        ${BASE_PATH_FOR_THIS_MODULE}
             ${CMAKE_SOURCE_DIR}/src/System.Device.Adc
 
 	    CMAKE_FIND_ROOT_PATH_BOTH
