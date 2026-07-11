@@ -14,12 +14,13 @@
             "description": "ESP32_LEDTREES_V1",
             "displayName": "ESP32_LEDTREES_V1",
             "inherits": [
-                "ESP32_S3"
+                "xtensa-esp32s3-preset",
+                "user-tools-repos",
+                "user-prefs"
             ],
             "cacheVariables": {
                 "TARGET_NAME": "${presetName}",
-                "SDK_CONFIG_FILE": "sdkconfig.default_lt_v1.esp32s3",
-                "NF_BUILD_RTM": "ON",
+                "NF_TARGET_DEFCONFIG": "targets/ESP32/defconfig/ESP32_LEDTREES_V1_defconfig",
                 "NF_INTEROP_ASSEMBLIES": "interoplib"
             }
         },
@@ -28,12 +29,13 @@
             "description": "ESP32_LEDTREES_V1_DEV",
             "displayName": "ESP32_LEDTREES_V1_DEV",
             "inherits": [
-                "ESP32_S3"
+                "xtensa-esp32s3-preset",
+                "user-tools-repos",
+                "user-prefs"
             ],
             "cacheVariables": {
                 "TARGET_NAME": "${presetName}",
-                "SDK_CONFIG_FILE": "sdkconfig.default_lt_v1.esp32s3",
-                "NF_BUILD_RTM": "OFF",
+                "NF_TARGET_DEFCONFIG": "targets/ESP32/defconfig/ESP32_LEDTREES_V1_DEV_defconfig",
                 "NF_INTEROP_ASSEMBLIES": "interoplib"
             }
         },
@@ -42,12 +44,13 @@
             "description": "ESP32_LEDTREES_V2",
             "displayName": "ESP32_LEDTREES_V2",
             "inherits": [
-                "ESP32_S3"
+                "xtensa-esp32s3-preset",
+                "user-tools-repos",
+                "user-prefs"
             ],
             "cacheVariables": {
                 "TARGET_NAME": "${presetName}",
-                "SDK_CONFIG_FILE": "sdkconfig.default_lt_v2.esp32s3",
-                "NF_BUILD_RTM": "ON",
+                "NF_TARGET_DEFCONFIG": "targets/ESP32/defconfig/ESP32_LEDTREES_V2_defconfig",
                 "NF_INTEROP_ASSEMBLIES": "interoplib"
             }
         },
@@ -56,12 +59,13 @@
             "description": "ESP32_LEDTREES_V2_DEV",
             "displayName": "ESP32_LEDTREES_V2_DEV",
             "inherits": [
-                "ESP32_S3"
+                "xtensa-esp32s3-preset",
+                "user-tools-repos",
+                "user-prefs"
             ],
             "cacheVariables": {
                 "TARGET_NAME": "${presetName}",
-                "SDK_CONFIG_FILE": "sdkconfig.default_lt_v2.esp32s3",
-                "NF_BUILD_RTM": "OFF",
+                "NF_TARGET_DEFCONFIG": "targets/ESP32/defconfig/ESP32_LEDTREES_V2_DEV_defconfig",
                 "NF_INTEROP_ASSEMBLIES": "interoplib"
             }
         }
