@@ -59,6 +59,7 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
         data5_io_num:       -1,
         data6_io_num:       -1,
         data7_io_num:       -1,
+        data_io_default_level: 0,
         max_transfer_sz:	INIT_BUFFER_SIZE,
         flags:              0,
         isr_cpu_id:         ESP_INTR_CPU_AFFINITY_1,
@@ -79,6 +80,7 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
         0,                   // cs_ena_posttrans
         SPI_LEDS_FREQ_HZ,         // Clock speed in Hz
         0,                   // Input_delay_ns
+        SPI_SAMPLING_POINT_PHASE_0, // Sampling point (new in IDF 5.5)
         csPin,               // Chip select, we will use manual chip select
         0,                   // SPI_DEVICE flags
         7,                   // Queue size
