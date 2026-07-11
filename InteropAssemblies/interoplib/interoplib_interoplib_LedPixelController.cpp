@@ -50,20 +50,20 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
     LEDS_COUNT = pixelCount;
     INIT_BUFFER_SIZE = 4 * pixelCount * 3;
     spi_bus_config_t bus_cfg {
-        mosi_io_num: 		    mosiPin,
-        miso_io_num: 		    misoPin,
-        sclk_io_num: 		    clkPin,
-        quadwp_io_num:  	    -1,
-        quadhd_io_num:  	    -1,
-        data4_io_num:           -1,
-        data5_io_num:           -1,
-        data6_io_num:           -1,
-        data7_io_num:           -1,
-        data_io_default_level:  false,
-        max_transfer_sz:	    INIT_BUFFER_SIZE,
-        flags:                  0,
-        isr_cpu_id:             ESP_INTR_CPU_AFFINITY_1,
-        intr_flags:             0
+        mosi_io_num: 		mosiPin,
+        miso_io_num: 		misoPin,
+        sclk_io_num: 		clkPin,
+        quadwp_io_num:  	-1,
+        quadhd_io_num:  	-1,
+        data4_io_num:       -1,
+        data5_io_num:       -1,
+        data6_io_num:       -1,
+        data7_io_num:       -1,
+        data_io_default_level: 0,
+        max_transfer_sz:	INIT_BUFFER_SIZE,
+        flags:              0,
+        isr_cpu_id:         ESP_INTR_CPU_AFFINITY_1,
+        intr_flags:         0
     };
 
     ret = spi_bus_initialize(SPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO); // инициализируем и включаем DMA для spi
@@ -80,7 +80,7 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
         0,                   // cs_ena_posttrans
         SPI_LEDS_FREQ_HZ,         // Clock speed in Hz
         0,                   // Input_delay_ns
-        SPI_SAMPLING_POINT_PHASE_0,
+        SPI_SAMPLING_POINT_PHASE_0, // Sampling point (new in IDF 5.5)
         csPin,               // Chip select, we will use manual chip select
         0,                   // SPI_DEVICE flags
         7,                   // Queue size
