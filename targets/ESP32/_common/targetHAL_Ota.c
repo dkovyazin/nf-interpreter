@@ -381,6 +381,27 @@ bool NF_Ota_IsPendingConfirm(void)
     return false;
 }
 
+void NF_Ota_NotifyDeploymentErased(void)
+{
+    nvs_handle_t nvs;
+    if (!NvsOpen(&nvs))
+    {
+        return;
+    }
+
+    // a manual deployment supersedes any in-flight OTA update: without this
+    // the boot-hook would apply the stale stage over the fresh deployment
+    // (STAGED) or restore 'backup' over it after a few reboots (APPLIED)
+    uint8_t state = NvsGetU8(nvs, OTA_NVS_KEY_STATE, OTA_STATE_IDLE);
+    if (state == OTA_STATE_STAGED || state == OTA_STATE_COPYING || state == OTA_STATE_APPLIED)
+    {
+        nvs_set_u8(nvs, OTA_NVS_KEY_STATE, OTA_STATE_IDLE);
+        nvs_commit(nvs);
+    }
+
+    nvs_close(nvs);
+}
+
 //////////////////////////////////////////////////////////////////////
 // boot-hook
 //////////////////////////////////////////////////////////////////////

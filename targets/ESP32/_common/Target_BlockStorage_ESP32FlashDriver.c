@@ -6,6 +6,10 @@
 #include <nanoPAL_BlockStorage.h>
 #include <Target_BlockStorage_Esp32FlashDriver.h>
 
+#if CONFIG_NF_FEATURE_OTA
+#include <targetHAL_Ota.h>
+#endif
+
 const DRAM_ATTR esp_partition_t *g_pFlashDriver_partition;
 const void *esp32_flash_start_ptr;
 esp_partition_mmap_handle_t g_esp32_flash_out_handle;
@@ -248,6 +252,12 @@ bool Esp32FlashDriver_EraseBlock(void *context, ByteAddress address)
 
     // this implementation here assumes that with ESP32 erase operations are performed only in the DEPLOYMENT region
     // and for the full block so the offset it's 0 and the size corresponds to the partition size
+
+#if CONFIG_NF_FEATURE_OTA
+    // a Wire Protocol deployment (VS/nanoff) is rewriting the deploy region:
+    // cancel any pending OTA state so the boot-hook does not clobber it
+    NF_Ota_NotifyDeploymentErased();
+#endif
 
     return (esp_partition_erase_range(g_pFlashDriver_partition, 0, g_pFlashDriver_partition->size) == ESP_OK);
 }

@@ -88,6 +88,12 @@ extern "C"
     // and BEFORE the CLR starts (deploy partition must not be in use).
     void NF_Ota_ApplyPending(void);
 
+    // called when the deploy region is rewritten OUTSIDE of the OTA flow (Wire
+    // Protocol deployment from VS/nanoff): cancels any pending OTA state so the
+    // boot-hook does not clobber the fresh deployment with a stale stage or
+    // roll it back from 'backup' on the next boot
+    void NF_Ota_NotifyDeploymentErased(void);
+
 #ifdef __cplusplus
 }
 #endif
