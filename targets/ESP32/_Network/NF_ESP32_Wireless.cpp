@@ -269,6 +269,25 @@ esp_err_t NF_ESP32_InitaliseWifi()
             // ignore stop result: may legitimately be in INIT/STOPPED state
             esp_err_t ecStop = esp_netif_dhcps_stop(wifiAPNetif);
 
+            // don't advertise a default gateway or DNS server in the DHCP
+            // offers: the SoftAP has no upstream internet, and an advertised
+            // router makes clients route all traffic into the AP, killing
+            // their internet access (phones drop off cellular, laptops with a
+            // second NIC prefer the bogus default route)
+            uint8_t dhcpsOfferOff = 0;
+            esp_netif_dhcps_option(
+                wifiAPNetif,
+                ESP_NETIF_OP_SET,
+                ESP_NETIF_ROUTER_SOLICITATION_ADDRESS,
+                &dhcpsOfferOff,
+                sizeof(dhcpsOfferOff));
+            esp_netif_dhcps_option(
+                wifiAPNetif,
+                ESP_NETIF_OP_SET,
+                ESP_NETIF_DOMAIN_NAME_SERVER,
+                &dhcpsOfferOff,
+                sizeof(dhcpsOfferOff));
+
             ec = esp_netif_dhcps_start(wifiAPNetif);
 #if !CONFIG_NF_BUILD_RTM
             esp_rom_printf(
