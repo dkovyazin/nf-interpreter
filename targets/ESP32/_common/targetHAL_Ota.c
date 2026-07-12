@@ -319,12 +319,34 @@ bool NF_Ota_StageBegin(uint32_t totalSize)
     stagePartition = FindDataPartition(OTA_PARTITION_SUBTYPE_STAGE);
     if (!stagePartition || totalSize == 0 || totalSize > stagePartition->size)
     {
+        stagePartition = NULL;
         return false;
+    }
+
+    // starting a new session cancels a committed-but-not-applied update: the
+    // erase below invalidates the staged image, and a record left in STAGED
+    // would send the boot-hook copying erased flash on the next boot (false
+    // rollback; after CommitFull - a rollback of a perfectly good firmware)
+    StateLoad();
+    if (currentState.state == OTA_STATE_STAGED)
+    {
+        currentState.state = OTA_STATE_IDLE;
+        if (!StateStore())
+        {
+            stagePartition = NULL;
+            return false;
+        }
     }
 
     stageWriteOffset = 0;
 
-    return esp_partition_erase_range(stagePartition, 0, stagePartition->size) == ESP_OK;
+    if (esp_partition_erase_range(stagePartition, 0, stagePartition->size) != ESP_OK)
+    {
+        stagePartition = NULL;
+        return false;
+    }
+
+    return true;
 }
 
 bool NF_Ota_StageWrite(const uint8_t *data, uint32_t length)
@@ -364,7 +386,15 @@ bool NF_Ota_StageCommit(uint32_t crc32)
     currentState.target = OTA_TARGET_NONE;
     currentState.attempts = 0;
     currentState.state = OTA_STATE_STAGED;
-    return StateStore();
+    if (!StateStore())
+    {
+        return false;
+    }
+
+    // close the write session: a stray StageWrite after the commit point must
+    // fail loudly instead of silently appending to a committed image
+    stagePartition = NULL;
+    return true;
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -402,14 +432,45 @@ bool NF_Ota_CommitFull(void)
 
 bool NF_Ota_Confirm(void)
 {
-    // cancel IDF rollback if this image is pending verification
-    // (returns an error when there is nothing pending - that is fine)
-    esp_ota_mark_app_valid_cancel_rollback();
-
     StateLoad();
-    currentState.state = OTA_STATE_CONFIRMED;
-    currentState.attempts = 0;
-    return StateStore();
+
+    if (currentState.state == OTA_STATE_APPLIED)
+    {
+        // cancel IDF rollback if this image is pending verification
+        // (returns an error when there is nothing pending - that is fine)
+        esp_ota_mark_app_valid_cancel_rollback();
+
+        currentState.state = OTA_STATE_CONFIRMED;
+        currentState.attempts = 0;
+        return StateStore();
+    }
+
+    if (currentState.state == OTA_STATE_CONFIRMED)
+    {
+        // idempotent re-confirm (managed retry)
+        esp_ota_mark_app_valid_cancel_rollback();
+        return true;
+    }
+
+    if (currentState.state == OTA_STATE_IDLE)
+    {
+        // defensive: the running image awaits verification but the state
+        // record carries no update context (fresh ota_state partition) -
+        // cancel the IDF rollback so the running bundle keeps running
+        const esp_partition_t *running = esp_ota_get_running_partition();
+        esp_ota_img_states_t imageState;
+        if (running && esp_ota_get_state_partition(running, &imageState) == ESP_OK &&
+            imageState == ESP_OTA_IMG_PENDING_VERIFY)
+        {
+            return esp_ota_mark_app_valid_cancel_rollback() == ESP_OK;
+        }
+    }
+
+    // STAGED / COPYING / ROLLED_BACK (and IDLE with nothing pending):
+    // confirming here would corrupt the state machine - a staged-but-not-yet-
+    // applied update would silently vanish, a rollback would be masked as
+    // confirmed - so refuse without touching the record
+    return false;
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -424,9 +485,19 @@ uint8_t NF_Ota_GetState(void)
 
 bool NF_Ota_IsPendingConfirm(void)
 {
-    if (NF_Ota_GetState() == OTA_STATE_APPLIED)
+    StateLoad();
+
+    if (currentState.state == OTA_STATE_APPLIED)
     {
         return true;
+    }
+
+    // mirror the NF_Ota_Confirm() contract: outside of APPLIED a confirmation
+    // is only expected for a pending-verify image with no update context
+    // (otherwise Confirm() refuses and this must not report true)
+    if (currentState.state != OTA_STATE_IDLE)
+    {
+        return false;
     }
 
     const esp_partition_t *running = esp_ota_get_running_partition();
