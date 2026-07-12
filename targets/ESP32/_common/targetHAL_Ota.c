@@ -44,6 +44,10 @@
 // in-flight nanoCLR image write
 static esp_ota_handle_t otaHandle;
 static const esp_partition_t *otaUpdatePartition;
+// set only by a successful FirmwareEnd: CommitFull refuses to switch the boot
+// partition unless the image in otaUpdatePartition was fully written and
+// validated in THIS session (statics survive failed sessions and CLR restarts)
+static bool otaFirmwareReady;
 
 // in-flight stage write
 static const esp_partition_t *stagePartition;
@@ -162,6 +166,8 @@ bool NF_Ota_FirmwareBegin(uint32_t totalSize)
         otaHandle = 0;
     }
 
+    otaFirmwareReady = false;
+
     otaUpdatePartition = esp_ota_get_next_update_partition(NULL);
     if (!otaUpdatePartition)
     {
@@ -169,7 +175,13 @@ bool NF_Ota_FirmwareBegin(uint32_t totalSize)
         return false;
     }
 
-    return esp_ota_begin(otaUpdatePartition, totalSize == 0 ? OTA_SIZE_UNKNOWN : totalSize, &otaHandle) == ESP_OK;
+    if (esp_ota_begin(otaUpdatePartition, totalSize == 0 ? OTA_SIZE_UNKNOWN : totalSize, &otaHandle) != ESP_OK)
+    {
+        otaUpdatePartition = NULL;
+        return false;
+    }
+
+    return true;
 }
 
 bool NF_Ota_FirmwareWrite(const uint8_t *data, uint32_t length)
@@ -198,6 +210,7 @@ bool NF_Ota_FirmwareEnd(void)
         return false;
     }
 
+    otaFirmwareReady = true;
     return true;
 }
 
@@ -284,7 +297,11 @@ bool NF_Ota_StageCommit(uint32_t crc32)
 
 bool NF_Ota_CommitFull(void)
 {
-    if (!otaUpdatePartition)
+    // otaFirmwareReady guards against committing a slot whose image was not
+    // fully written and validated in this session (aborted write, stale
+    // pointer from an earlier attempt); repeating CommitFull after a
+    // successful one stays allowed - it is idempotent
+    if (!otaUpdatePartition || !otaFirmwareReady)
     {
         return false;
     }
