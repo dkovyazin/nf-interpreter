@@ -9,12 +9,12 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <stddef.h>
 
 #include <sdkconfig.h>
 #include <esp_partition.h>
 #include <esp_ota_ops.h>
 #include <esp_rom_crc.h>
-#include <nvs.h>
 
 // The FULL-update rollback path relies on the IDF bootloader marking a freshly
 // switched slot PENDING_VERIFY and rolling it back when the app never confirms.
@@ -29,17 +29,120 @@
 #define OTA_PARTITION_SUBTYPE_DEPLOY ((esp_partition_subtype_t)0x84)
 #define OTA_PARTITION_SUBTYPE_STAGE  ((esp_partition_subtype_t)0x85)
 #define OTA_PARTITION_SUBTYPE_BACKUP ((esp_partition_subtype_t)0x86)
-
-// NVS storage
-#define OTA_NVS_NAMESPACE "nf_ota"
-#define OTA_NVS_KEY_STATE "state"
-// subtype of the ota_x slot the staged deployment is bound to, or OTA_TARGET_NONE
-#define OTA_NVS_KEY_TARGET "target"
-#define OTA_NVS_KEY_STAGE_LENGTH "stage_len"
-#define OTA_NVS_KEY_STAGE_CRC "stage_crc"
-#define OTA_NVS_KEY_BOOT_ATTEMPTS "attempts"
+#define OTA_PARTITION_SUBTYPE_STATE  ((esp_partition_subtype_t)0x87)
 
 #define OTA_COPY_BUFFER_SIZE 4096
+
+//////////////////////////////////////////////////////////////////////
+// OTA state record
+//
+// The state machine is persisted in its own raw 'ota_state' partition
+// (two 4 KB sectors) instead of NVS, so it survives an NVS erase or
+// corruption recovery. Writes ping-pong between the sectors, like the
+// IDF otadata partition: record with sequence N lives in sector N % 2,
+// a new record goes to the other sector, so a power loss mid-write
+// always leaves the previous record intact. A whole state transition
+// is one CRC-protected record write - atomic by construction.
+//////////////////////////////////////////////////////////////////////
+
+#define OTA_STATE_MAGIC       0x544F464E // 'NFOT', little-endian
+#define OTA_STATE_SECTOR_SIZE 4096
+
+typedef struct __attribute__((packed))
+{
+    uint32_t magic;
+    // monotonically increasing; valid records start at 1
+    uint32_t sequence;
+    uint8_t state;
+    // subtype of the ota_x slot the staged deployment is bound to, or OTA_TARGET_NONE
+    uint8_t target;
+    uint8_t attempts;
+    uint8_t reserved;
+    uint32_t stageLength;
+    uint32_t stageCrc;
+    // zlib crc32 over all preceding bytes
+    uint32_t crc;
+} OtaStateRecord;
+
+static const esp_partition_t *statePartition;
+static OtaStateRecord currentState;
+static bool stateLoaded;
+
+static uint32_t StateRecordCrc(const OtaStateRecord *record)
+{
+    return esp_rom_crc32_le(0, (const uint8_t *)record, offsetof(OtaStateRecord, crc));
+}
+
+// load the newest valid record into currentState; defaults to IDLE when the
+// partition is missing or holds no valid record
+static void StateLoad(void)
+{
+    if (stateLoaded)
+    {
+        return;
+    }
+
+    memset(&currentState, 0, sizeof(currentState));
+    currentState.magic = OTA_STATE_MAGIC;
+    currentState.state = OTA_STATE_IDLE;
+    currentState.target = OTA_TARGET_NONE;
+
+    if (!statePartition)
+    {
+        statePartition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, OTA_PARTITION_SUBTYPE_STATE, NULL);
+    }
+
+    if (statePartition)
+    {
+        for (int sector = 0; sector < 2; sector++)
+        {
+            OtaStateRecord record;
+            if (esp_partition_read(statePartition, sector * OTA_STATE_SECTOR_SIZE, &record, sizeof(record)) != ESP_OK)
+            {
+                continue;
+            }
+
+            if (record.magic != OTA_STATE_MAGIC || record.crc != StateRecordCrc(&record))
+            {
+                continue;
+            }
+
+            // valid sequences start at 1, the IDLE default holds sequence 0
+            if (record.sequence > currentState.sequence)
+            {
+                currentState = record;
+            }
+        }
+    }
+
+    stateLoaded = true;
+}
+
+// persist currentState as a new record in the inactive sector
+static bool StateStore(void)
+{
+    StateLoad();
+
+    if (!statePartition)
+    {
+        return false;
+    }
+
+    currentState.sequence++;
+    currentState.crc = StateRecordCrc(&currentState);
+
+    uint32_t offset = (currentState.sequence % 2) * OTA_STATE_SECTOR_SIZE;
+    if (esp_partition_erase_range(statePartition, offset, OTA_STATE_SECTOR_SIZE) != ESP_OK ||
+        esp_partition_write(statePartition, offset, &currentState, sizeof(currentState)) != ESP_OK)
+    {
+        // keep targeting the same sector on a retry; the current on-flash
+        // record (previous sector) is still intact
+        currentState.sequence--;
+        return false;
+    }
+
+    return true;
+}
 
 // in-flight nanoCLR image write
 static esp_ota_handle_t otaHandle;
@@ -56,25 +159,6 @@ static uint32_t stageWriteOffset;
 static const esp_partition_t *FindDataPartition(esp_partition_subtype_t subtype)
 {
     return esp_partition_find_first(ESP_PARTITION_TYPE_DATA, subtype, NULL);
-}
-
-static bool NvsOpen(nvs_handle_t *handle)
-{
-    return nvs_open(OTA_NVS_NAMESPACE, NVS_READWRITE, handle) == ESP_OK;
-}
-
-static uint8_t NvsGetU8(nvs_handle_t handle, const char *key, uint8_t defaultValue)
-{
-    uint8_t value = defaultValue;
-    nvs_get_u8(handle, key, &value);
-    return value;
-}
-
-static uint32_t NvsGetU32(nvs_handle_t handle, const char *key, uint32_t defaultValue)
-{
-    uint32_t value = defaultValue;
-    nvs_get_u32(handle, key, &value);
-    return value;
 }
 
 // copy 'length' bytes from one partition to another (destination erased first)
@@ -273,22 +357,14 @@ bool NF_Ota_StageCommit(uint32_t crc32)
         return false;
     }
 
-    nvs_handle_t nvs;
-    if (!NvsOpen(&nvs))
-    {
-        return false;
-    }
-
-    bool success = nvs_set_u32(nvs, OTA_NVS_KEY_STAGE_LENGTH, stageWriteOffset) == ESP_OK &&
-                   nvs_set_u32(nvs, OTA_NVS_KEY_STAGE_CRC, crc32) == ESP_OK &&
-                   nvs_set_u8(nvs, OTA_NVS_KEY_TARGET, OTA_TARGET_NONE) == ESP_OK &&
-                   nvs_set_u8(nvs, OTA_NVS_KEY_BOOT_ATTEMPTS, 0) == ESP_OK &&
-                   // state written last: everything above is passive until this key flips
-                   nvs_set_u8(nvs, OTA_NVS_KEY_STATE, OTA_STATE_STAGED) == ESP_OK &&
-                   nvs_commit(nvs) == ESP_OK;
-
-    nvs_close(nvs);
-    return success;
+    // one atomic record write: nothing is committed until it lands
+    StateLoad();
+    currentState.stageLength = stageWriteOffset;
+    currentState.stageCrc = crc32;
+    currentState.target = OTA_TARGET_NONE;
+    currentState.attempts = 0;
+    currentState.state = OTA_STATE_STAGED;
+    return StateStore();
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -306,20 +382,16 @@ bool NF_Ota_CommitFull(void)
         return false;
     }
 
-    nvs_handle_t nvs;
-    if (!NvsOpen(&nvs))
+    // bind the staged deployment to the new slot; still passive: the boot-hook
+    // applies it only when actually running from that slot
+    StateLoad();
+    if (currentState.state != OTA_STATE_STAGED)
     {
         return false;
     }
 
-    // bind the staged deployment to the new slot; still passive: the boot-hook
-    // applies it only when actually running from that slot
-    bool success = NvsGetU8(nvs, OTA_NVS_KEY_STATE, OTA_STATE_IDLE) == OTA_STATE_STAGED &&
-                   nvs_set_u8(nvs, OTA_NVS_KEY_TARGET, (uint8_t)otaUpdatePartition->subtype) == ESP_OK &&
-                   nvs_commit(nvs) == ESP_OK;
-    nvs_close(nvs);
-
-    if (!success)
+    currentState.target = (uint8_t)otaUpdatePartition->subtype;
+    if (!StateStore())
     {
         return false;
     }
@@ -334,17 +406,10 @@ bool NF_Ota_Confirm(void)
     // (returns an error when there is nothing pending - that is fine)
     esp_ota_mark_app_valid_cancel_rollback();
 
-    nvs_handle_t nvs;
-    if (!NvsOpen(&nvs))
-    {
-        return false;
-    }
-
-    bool success = nvs_set_u8(nvs, OTA_NVS_KEY_STATE, OTA_STATE_CONFIRMED) == ESP_OK &&
-                   nvs_set_u8(nvs, OTA_NVS_KEY_BOOT_ATTEMPTS, 0) == ESP_OK && nvs_commit(nvs) == ESP_OK;
-
-    nvs_close(nvs);
-    return success;
+    StateLoad();
+    currentState.state = OTA_STATE_CONFIRMED;
+    currentState.attempts = 0;
+    return StateStore();
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -353,15 +418,8 @@ bool NF_Ota_Confirm(void)
 
 uint8_t NF_Ota_GetState(void)
 {
-    nvs_handle_t nvs;
-    if (!NvsOpen(&nvs))
-    {
-        return OTA_STATE_IDLE;
-    }
-
-    uint8_t state = NvsGetU8(nvs, OTA_NVS_KEY_STATE, OTA_STATE_IDLE);
-    nvs_close(nvs);
-    return state;
+    StateLoad();
+    return currentState.state;
 }
 
 bool NF_Ota_IsPendingConfirm(void)
@@ -383,55 +441,40 @@ bool NF_Ota_IsPendingConfirm(void)
 
 void NF_Ota_NotifyDeploymentErased(void)
 {
-    nvs_handle_t nvs;
-    if (!NvsOpen(&nvs))
-    {
-        return;
-    }
-
     // a manual deployment supersedes any in-flight OTA update: without this
     // the boot-hook would apply the stale stage over the fresh deployment
     // (STAGED) or restore 'backup' over it after a few reboots (APPLIED)
-    uint8_t state = NvsGetU8(nvs, OTA_NVS_KEY_STATE, OTA_STATE_IDLE);
-    if (state == OTA_STATE_STAGED || state == OTA_STATE_COPYING || state == OTA_STATE_APPLIED)
+    StateLoad();
+    if (currentState.state == OTA_STATE_STAGED || currentState.state == OTA_STATE_COPYING ||
+        currentState.state == OTA_STATE_APPLIED)
     {
-        nvs_set_u8(nvs, OTA_NVS_KEY_STATE, OTA_STATE_IDLE);
-        nvs_commit(nvs);
+        currentState.state = OTA_STATE_IDLE;
+        StateStore();
     }
-
-    nvs_close(nvs);
 }
 
 //////////////////////////////////////////////////////////////////////
 // boot-hook
 //////////////////////////////////////////////////////////////////////
 
-static void RestoreBackup(
-    nvs_handle_t nvs,
-    const esp_partition_t *deploy,
-    const esp_partition_t *backup)
+static void RestoreBackup(const esp_partition_t *deploy, const esp_partition_t *backup)
 {
     // idempotent: 'backup' is not modified, so a power loss here just repeats
     // the restore on the next boot (state stays below CONFIRMED)
     if (CopyPartition(deploy, backup, deploy->size))
     {
-        nvs_set_u8(nvs, OTA_NVS_KEY_STATE, OTA_STATE_ROLLED_BACK);
-        nvs_commit(nvs);
+        currentState.state = OTA_STATE_ROLLED_BACK;
+        StateStore();
     }
 }
 
 void NF_Ota_ApplyPending(void)
 {
-    nvs_handle_t nvs;
-    if (!NvsOpen(&nvs))
-    {
-        return;
-    }
+    StateLoad();
 
-    uint8_t state = NvsGetU8(nvs, OTA_NVS_KEY_STATE, OTA_STATE_IDLE);
+    uint8_t state = currentState.state;
     if (state == OTA_STATE_IDLE || state == OTA_STATE_CONFIRMED || state == OTA_STATE_ROLLED_BACK)
     {
-        nvs_close(nvs);
         return;
     }
 
@@ -441,17 +484,12 @@ void NF_Ota_ApplyPending(void)
     if (!deploy || !stage || !backup)
     {
         // not an OTA partition layout
-        nvs_close(nvs);
         return;
     }
 
-    uint8_t target = NvsGetU8(nvs, OTA_NVS_KEY_TARGET, OTA_TARGET_NONE);
-    uint32_t stageLength = NvsGetU32(nvs, OTA_NVS_KEY_STAGE_LENGTH, 0);
-    uint32_t stageCrc = NvsGetU32(nvs, OTA_NVS_KEY_STAGE_CRC, 0);
-
     const esp_partition_t *running = esp_ota_get_running_partition();
-    bool isFull = target != OTA_TARGET_NONE;
-    bool onTargetSlot = isFull && running && (uint8_t)running->subtype == target;
+    bool isFull = currentState.target != OTA_TARGET_NONE;
+    bool onTargetSlot = isFull && running && (uint8_t)running->subtype == currentState.target;
 
     switch (state)
     {
@@ -471,8 +509,11 @@ void NF_Ota_ApplyPending(void)
                 break;
             }
 
-            nvs_set_u8(nvs, OTA_NVS_KEY_STATE, OTA_STATE_COPYING);
-            nvs_commit(nvs);
+            currentState.state = OTA_STATE_COPYING;
+            if (!StateStore())
+            {
+                break;
+            }
 
             // apply the staged image
             __attribute__((fallthrough));
@@ -482,29 +523,31 @@ void NF_Ota_ApplyPending(void)
             if (isFull && !onTargetSlot)
             {
                 // slot rolled back while the deployment was being rewritten
-                RestoreBackup(nvs, deploy, backup);
+                RestoreBackup(deploy, backup);
                 break;
             }
 
-            if (stageLength == 0 || stageLength > deploy->size || !CopyPartition(deploy, stage, stageLength))
+            if (currentState.stageLength == 0 || currentState.stageLength > deploy->size ||
+                !CopyPartition(deploy, stage, currentState.stageLength))
             {
-                RestoreBackup(nvs, deploy, backup);
+                RestoreBackup(deploy, backup);
                 break;
             }
 
             // verify what actually landed in deploy
             {
                 uint32_t actualCrc;
-                if (!ComputePartitionCrc(deploy, stageLength, &actualCrc) || actualCrc != stageCrc)
+                if (!ComputePartitionCrc(deploy, currentState.stageLength, &actualCrc) ||
+                    actualCrc != currentState.stageCrc)
                 {
-                    RestoreBackup(nvs, deploy, backup);
+                    RestoreBackup(deploy, backup);
                     break;
                 }
             }
 
-            nvs_set_u8(nvs, OTA_NVS_KEY_BOOT_ATTEMPTS, 1);
-            nvs_set_u8(nvs, OTA_NVS_KEY_STATE, OTA_STATE_APPLIED);
-            nvs_commit(nvs);
+            currentState.attempts = 1;
+            currentState.state = OTA_STATE_APPLIED;
+            StateStore();
             break;
 
         case OTA_STATE_APPLIED:
@@ -515,7 +558,7 @@ void NF_Ota_ApplyPending(void)
                 {
                     // the IDF bootloader rolled the slot back (new nanoCLR never
                     // confirmed): bring the old deployment back too
-                    RestoreBackup(nvs, deploy, backup);
+                    RestoreBackup(deploy, backup);
                 }
                 // else: rollback window is managed by the IDF pending-verify
                 // mechanism; nothing to do here
@@ -523,25 +566,20 @@ void NF_Ota_ApplyPending(void)
             }
 
             // light update: count boots without managed confirmation
+            if (currentState.attempts >= OTA_MAX_BOOT_ATTEMPTS)
             {
-                uint8_t attempts = NvsGetU8(nvs, OTA_NVS_KEY_BOOT_ATTEMPTS, 1) + 1;
-                if (attempts > OTA_MAX_BOOT_ATTEMPTS)
-                {
-                    RestoreBackup(nvs, deploy, backup);
-                }
-                else
-                {
-                    nvs_set_u8(nvs, OTA_NVS_KEY_BOOT_ATTEMPTS, attempts);
-                    nvs_commit(nvs);
-                }
+                RestoreBackup(deploy, backup);
+            }
+            else
+            {
+                currentState.attempts++;
+                StateStore();
             }
             break;
 
         default:
             break;
     }
-
-    nvs_close(nvs);
 }
 
 #endif // CONFIG_NF_FEATURE_OTA

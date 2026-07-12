@@ -69,7 +69,7 @@
 |---|---|
 | Таблица разделов OTA | [partitions_nanoclr_16mb_ota.csv](targets/ESP32/_IDF/esp32s3/partitions_nanoclr_16mb_ota.csv) |
 | Опция `NF_FEATURE_OTA` | [Kconfig.features](Kconfig.features), включена во всех LEDTREES defconfig |
-| Нативное ядро (NVS state machine, слоты, stage, commit, confirm) | [targetHAL_Ota.c](targets/ESP32/_common/targetHAL_Ota.c) / [targetHAL_Ota.h](targets/ESP32/_include/targetHAL_Ota.h) |
+| Нативное ядро (state machine в разделе `ota_state`, слоты, stage, commit, confirm) | [targetHAL_Ota.c](targets/ESP32/_common/targetHAL_Ota.c) / [targetHAL_Ota.h](targets/ESP32/_include/targetHAL_Ota.h) |
 | Boot-hook `NF_Ota_ApplyPending()` | [app_main.c](targets/ESP32/_IDF/esp32s3/app_main.c), после `nvs_flash_init`, до задач CLR |
 | Регион nanoCLR через `esp_ota_get_running_partition()` | [Device_BlockStorage.c](targets/ESP32/_common/Device_BlockStorage.c) |
 | Interop `interoplib.Ota` (нативная часть, чексумма `0x52D58C6F`) | [InteropAssemblies/interoplib](InteropAssemblies/interoplib) |
@@ -138,6 +138,7 @@
 nvs,       data, nvs,      0x9000,   0x6000
 otadata,   data, ota,      0xf000,   0x2000     # активный слот (A/B), атомарный
 phy_init,  data, phy,      0x11000,  0x1000
+ota_state, data, 0x87,     0x12000,  0x2000     # состояние OTA-автомата (вне NVS)
 ota_0,     app,  ota_0,    0x20000,  0x1A0000   # nanoCLR слот A (1664 KB)
 ota_1,     app,  ota_1,    0x1C0000, 0x1A0000   # nanoCLR слот B (1664 KB)
 deploy,    data, 0x84,     0x360000, 0x2E0000   # managed-образ, рабочая копия (2944 KB)
@@ -245,7 +246,7 @@ BundleInstaller (managed)               Boot-hook (нативный, до зад
 откат согласован автоматически (старый образ ищет старый каталог, он не тронут).
 После `Confirm()` каталоги других версий удаляются.
 
-## 6. Состояния (NVS, namespace `nf_ota`)
+## 6. Состояния (раздел `ota_state`)
 
 ```
 IDLE → STAGED(target_slot?) → COPYING → APPLIED → CONFIRMED
@@ -254,10 +255,19 @@ IDLE → STAGED(target_slot?) → COPYING → APPLIED → CONFIRMED
                                                 полное: откат слота IDF + restore backup)
 ```
 
-NVS выбран вместо littlefs/config: доступен boot-hook'у до инициализации файловой
-системы, атомарен на уровне записи ключа, переживает переформатирование littlefs.
-Ключи: `state`, `target` (subtype слота или 0xFF для лёгкого), `stage_len`,
-`stage_crc`, `attempts`.
+Состояние хранится в **собственном raw-разделе `ota_state`** (subtype 0x87,
+два сектора по 4 KB) — не в NVS. Запись — единый CRC-защищённый рекорд
+(`magic`, `sequence`, `state`, `target`, `attempts`, `stage_len`, `stage_crc`),
+пишется пинг-понгом в «не текущий» сектор по образцу `otadata`: сбой питания
+посреди записи оставляет предыдущий рекорд нетронутым, а каждый переход
+автомата атомарен по построению (весь рекорд целиком, порядок ключей не важен).
+
+Почему не NVS: восстановление после повреждения NVS (`nvs_flash_erase` +
+retry в `app_main`) стирало бы и OTA-состояние — в худшем случае
+(APPLIED + откат слота бутлоадером) устройство оставалось бы с парой
+«старый CLR + новый managed» без шанса на автоматический restore из backup.
+Отдельный раздел отвязывает судьбу автомата от жизненного цикла NVS.
+Littlefs не подходит: недоступен boot-hook'у до инициализации ФС.
 
 ## 7. API
 
@@ -401,6 +411,9 @@ otadata, чтобы плата не грузила старый слот).
 | Приложение упало на старте при pending-обновлении | `Program.Main` перезагружает устройство → соответствующий откат |
 | Питание при записи wwwroot-{ver} | каталог не используется до старта новой версии; перезапись идемпотентна |
 | Битый .ltfw (заголовок/CRC) | отбрасывается до точек фиксации (`TryReadHeader`/`StageCommit`) |
+| NVS переполнен/повреждён | `app_main` делает erase+retry вместо паники; OTA-состояние в разделе `ota_state` не затрагивается |
+| Питание при записи ota_state | пинг-понг секторов: действует предыдущий рекорд, переход повторится/отменится штатно |
+| Деплой из VS при незавершённом OTA | стирание deploy-региона сбрасывает состояние в IDLE — boot-hook не тронет свежий деплой |
 | Питание SCREEN при скачивании с MAIN | обычный сбой скачивания; `NeedUpdate` при следующей регистрации повторит |
 | SCREEN трижды не смог обновиться | остаётся на старой версии, выпадает из показа, репорт в телеметрию |
 | MAIN откатился, часть SCREEN'ов обновилась | группа сводится к версии MAIN: SCREEN'ы даунгрейдятся (§9 п.4) |

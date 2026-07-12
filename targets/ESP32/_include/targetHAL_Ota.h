@@ -11,7 +11,10 @@
 
 // OTA update support (NF_FEATURE_OTA).
 //
-// Two update flavours share one state machine, persisted in NVS:
+// Two update flavours share one state machine, persisted in the dedicated
+// 'ota_state' raw partition (subtype 0x87, two 4 KB sectors written in a
+// ping-pong pattern with CRC, like the IDF otadata partition). The state is
+// deliberately NOT in NVS so it survives an NVS erase/corruption recovery.
 // - FULL:  a new nanoCLR image is written to the inactive ota_x slot and a new
 //          managed deployment image is written to the 'stage' partition.
 //          Commit point is esp_ota_set_boot_partition() (atomic). The staged

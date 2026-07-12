@@ -69,7 +69,16 @@ void app_main()
     esp_log_level_set("*", ESP_LOG_ERROR);
 #endif
 
-    ESP_ERROR_CHECK(nvs_flash_init());
+    // recover from a full or corrupted NVS instead of ESP_ERROR_CHECK-panicking
+    // into a boot loop; the OTA state lives in its own partition and is not
+    // affected by the erase
+    esp_err_t nvsResult = nvs_flash_init();
+    if (nvsResult == ESP_ERR_NVS_NO_FREE_PAGES || nvsResult == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        nvsResult = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(nvsResult);
 
 #if CONFIG_NF_FEATURE_OTA
     // apply/rollback a staged OTA deployment image; must run before the CLR

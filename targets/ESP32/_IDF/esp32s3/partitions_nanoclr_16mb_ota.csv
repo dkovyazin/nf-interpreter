@@ -10,6 +10,9 @@ nvs,      data, nvs,     0x9000,   0x6000,
 # OTA data: active slot selection (A/B), managed atomically by the IDF bootloader
 otadata,  data, ota,     0xf000,   0x2000,
 phy_init, data, phy,     0x11000,  0x1000,
+# OTA state machine record (two 4k sectors, ping-pong writes, CRC-protected);
+# deliberately NOT in NVS so it survives an NVS erase/recovery
+ota_state,data, 0x87,    0x12000,  0x2000,
 # nanoCLR slot A - 1664k
 ota_0,    app, ota_0,    0x20000,  0x1A0000,
 # nanoCLR slot B - 1664k
