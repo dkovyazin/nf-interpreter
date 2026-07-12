@@ -231,11 +231,33 @@ esp_err_t NF_ESP32_InitaliseWifi()
         // this can only be performed after Wi-Fi is started
         if (expectedWifiMode & WIFI_MODE_AP)
         {
+            HAL_Configuration_NetworkInterface *networkConfig =
+                (HAL_Configuration_NetworkInterface *)platform_malloc(sizeof(HAL_Configuration_NetworkInterface));
+            if (networkConfig == NULL)
+            {
+                return ESP_FAIL;
+            }
+
+            if (ConfigurationManager_GetConfigurationBlock(networkConfig, DeviceConfigurationOption_Network, 1))
+            {
+                // take care of configuring Soft AP
+                ec = NF_ESP32_WirelessAP_Configure(networkConfig);
+
+                platform_free(networkConfig);
+            }
+
+            if (ec != ESP_OK)
+            {
+                return ec;
+            }
+
             // LEDTREES: start the DHCP server on the AP interface (LWIP_DHCPS is
             // enabled in the lt sdkconfig); the AUTOUP-only netif flags above keep
             // esp_netif from doing it automatically (ported from the release branch).
-            // dhcps only really starts when the netif is up, and the AP_START event
-            // is processed asynchronously after esp_wifi_start() - wait for it.
+            // Must run AFTER the AP configuration: esp_wifi_set_config bounces the
+            // AP (AP_STOP/AP_START), which would kill an already-running server.
+            // dhcps only really starts when the netif is up, and AP events are
+            // processed asynchronously - wait for the netif to come up first.
             {
                 int retries = 40;
                 while (retries-- > 0 && !esp_netif_is_netif_up(wifiAPNetif))
@@ -264,26 +286,6 @@ esp_err_t NF_ESP32_InitaliseWifi()
             }
 
             ec = esp_netif_set_default_netif(wifiAPNetif);
-            if (ec != ESP_OK)
-            {
-                return ec;
-            }
-
-            HAL_Configuration_NetworkInterface *networkConfig =
-                (HAL_Configuration_NetworkInterface *)platform_malloc(sizeof(HAL_Configuration_NetworkInterface));
-            if (networkConfig == NULL)
-            {
-                return ESP_FAIL;
-            }
-
-            if (ConfigurationManager_GetConfigurationBlock(networkConfig, DeviceConfigurationOption_Network, 1))
-            {
-                // take care of configuring Soft AP
-                ec = NF_ESP32_WirelessAP_Configure(networkConfig);
-
-                platform_free(networkConfig);
-            }
-
             if (ec != ESP_OK)
             {
                 return ec;
