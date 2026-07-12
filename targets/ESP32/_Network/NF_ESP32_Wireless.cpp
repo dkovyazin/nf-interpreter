@@ -231,6 +231,44 @@ esp_err_t NF_ESP32_InitaliseWifi()
         // this can only be performed after Wi-Fi is started
         if (expectedWifiMode & WIFI_MODE_AP)
         {
+            // LEDTREES: start the DHCP server on the AP interface (LWIP_DHCPS is
+            // enabled in the lt sdkconfig); the AUTOUP-only netif flags above keep
+            // esp_netif from doing it automatically (ported from the release branch).
+            // dhcps only really starts when the netif is up, and the AP_START event
+            // is processed asynchronously after esp_wifi_start() - wait for it.
+            {
+                int retries = 40;
+                while (retries-- > 0 && !esp_netif_is_netif_up(wifiAPNetif))
+                {
+                    vTaskDelay(pdMS_TO_TICKS(50));
+                }
+            }
+
+            // ignore stop result: may legitimately be in INIT/STOPPED state
+            esp_err_t ecStop = esp_netif_dhcps_stop(wifiAPNetif);
+
+            ec = esp_netif_dhcps_start(wifiAPNetif);
+#if !CONFIG_NF_BUILD_RTM
+            esp_rom_printf(
+                "[NET-DIAG] AP netif up=%d dhcps stop=0x%x start=0x%x\r\n",
+                (int)esp_netif_is_netif_up(wifiAPNetif),
+                (unsigned)ecStop,
+                (unsigned)ec);
+#else
+            (void)ecStop;
+#endif
+            if (ec != ESP_OK && ec != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STARTED)
+            {
+                ESP_LOGE(TAG, "Unable to start AP DHCP server - result %d", ec);
+                // not fatal for the rest of the network stack
+            }
+
+            ec = esp_netif_set_default_netif(wifiAPNetif);
+            if (ec != ESP_OK)
+            {
+                return ec;
+            }
+
             HAL_Configuration_NetworkInterface *networkConfig =
                 (HAL_Configuration_NetworkInterface *)platform_malloc(sizeof(HAL_Configuration_NetworkInterface));
             if (networkConfig == NULL)
