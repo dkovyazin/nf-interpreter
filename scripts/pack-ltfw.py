@@ -71,6 +71,19 @@ def main() -> int:
     managed = args.managed.read_bytes()
     web = build_web_section(args.wwwroot) if args.wwwroot else b""
 
+    # cheap sanity checks: catch swapped --clr/--managed arguments and broken
+    # managed images here instead of on the device
+    if not clr or clr[0] != 0xE9:
+        ap.error(f"{args.clr}: not an ESP-IDF app image (first byte 0x{clr[0]:02X} != 0xE9)"
+                 if clr else f"{args.clr}: empty file")
+    if not managed:
+        ap.error(f"{args.managed}: empty file")
+    if len(managed) % 4 != 0:
+        # the CLR walks the deploy region as 4-byte-aligned .pe records
+        ap.error(f"{args.managed}: size {len(managed)} is not 4-byte aligned")
+    if managed[0] == 0xE9:
+        ap.error(f"{args.managed}: looks like an ESP-IDF app image - swapped --clr/--managed?")
+
     sections = []
     offset = HEADER_SIZE
     for data in (clr, managed, web):
