@@ -1,107 +1,137 @@
 # OTA: обновление прошивки и приложения единым bundle
 
-Проект системы OTA-обновлений для устройств LEDTREES (ESP32-S3, 16 MB flash, ESP-IDF 5.5.4,
+Система OTA-обновлений для устройств LEDTREES (ESP32-S3, 16 MB flash, ESP-IDF 5.5.4,
 таргеты `ESP32_LEDTREES_V1/V2` и их `_DEV`-варианты).
 
-> **Решение (2026-07-12):** целевая архитектура — единый firmware bundle.
-> `LedTrees.Device.Loader` и `LedTrees.Device.App` объединяются: приложение статически
-> линкуется с Loader'ом и живёт в deploy-регионе. Раздельная схема с динамической
-> загрузкой приложения через `Assembly.Load` (текущий `OtaManager`) выводится из
-> эксплуатации — см. §14 «Отклонённые альтернативы».
+> **Решение (2026-07-12):** целевая архитектура — единый firmware bundle; проект
+> `LedTrees.Device.Loader` удалён, приложение — единственный managed-образ.
+> Раздельная схема с `Assembly.Load`/`OtaManager` выведена из эксплуатации —
+> см. §14 «Отклонённые альтернативы».
+>
+> **Статус: фаза 1 реализована и проверена на железе** (сквозные OTA-циклы,
+> лёгкий и полный, до состояния CONFIRMED; веб-админка и DHCP на AP работают).
+> Подробности — §2 и §13.
 
 ## 1. Архитектура
 
-Одна единица обновления — **firmware bundle**, три секции в одном артефакте:
+Одна единица обновления — **firmware bundle** (`.ltfw`), три секции в одном артефакте:
 
 | Секция | Что это | Куда ставится |
 |---|---|---|
 | nanoCLR | интерпретатор + нативные API | app-партиция `ota_0`/`ota_1` (A/B) |
-| managed-образ | `Loader` + `App` + библиотеки, статически слинкованы | партиция `deploy` (через `stage`) |
-| web-ассеты | `wwwroot` | littlefs, каталог `wwwroot-{ver}` |
+| managed-образ | `App` + библиотеки (единая сборка, точка входа `Program.Main`) | партиция `deploy` (через `stage`) |
+| web-ассеты | `wwwroot` админки | SD-карта, каталог `ota/wwwroot-{ver}` |
 
-Всё собирается вместе в CI, версия одна на всё ⇒ несовместимых комбинаций
+Всё собирается вместе, версия одна на всё ⇒ несовместимых комбинаций
 «прошивка ↔ приложение» на устройстве не существует по построению. Приложение вызывается
 напрямую (`Startup.Run()`), без `Assembly.Load` и reflection; managed-код исполняется
 из flash (memory-mapped), не занимая RAM.
 
-Два сценария доставки одного и того же артефакта:
+Два сценария доставки одного и того же артефакта (решение принимает устройство,
+сравнив `clrSha256` секции с работающим образом):
 
 - **Полное обновление** — nanoCLR изменился: пишутся все секции, точка фиксации —
   переключение ota-слота (`otadata`, атомарно), откат — штатный rollback ESP-IDF.
-- **Лёгкое обновление** — `clrSha256` совпадает с текущим слотом: по HTTP Range
-  скачиваются только managed-образ и web-ассеты (~1 MB вместо ~2.5 MB), точка фиксации —
-  флаг в NVS, откат — восстановление из `backup` по счётчику неудачных стартов.
+- **Лёгкое обновление** — nanoCLR не менялся: применяются только managed-образ и
+  web-ассеты (~0.5 MB вместо ~1.9 MB), точка фиксации — флаг в NVS, откат —
+  восстановление из `backup` по счётчику неудачных стартов.
 
 ```
               ┌────────────────────────────┐
-              │  Update-сервер (HTTPS)     │
-              │  manifest.json + .ltfw     │
+              │  Источник .ltfw:           │
+              │  upload-update (HTTP) /    │
+              │  DeviceConsole (TCP) /     │
+              │  update-сервер (фаза 2)    │
               └─────────────┬──────────────┘
                             │
               ┌─────────────┴──────────────┐
-              │  OtaUpdater (managed)      │
-              │  clrSha256 == текущий?     │
+              │  BundleInstaller (managed) │
+              │  кэш на SD; clrSha256 == ? │
               └──────┬──────────────┬──────┘
             ПОЛНОЕ   │              │   ЛЁГКОЕ
                      ▼              ▼
         nanoCLR → неактивный слот   (секция CLR пропущена)
         managed → stage             managed → stage
-        wwwroot-{ver} → littlefs    wwwroot-{ver} → littlefs
-        commit: otadata             commit: NVS-флаг
+        wwwroot-{ver} → SD          wwwroot-{ver} → SD
+        commit: otadata             commit: NVS-флаг (StageCommit)
         reboot                      reboot
                      └──────┬───────┘
                             ▼
         boot-hook (до старта CLR): deploy → backup, stage → deploy
-        Loader: health-check → Confirm (иначе автооткат)
+        App: старт сервисов → Bundle.ConfirmIfPending (иначе автооткат)
 ```
 
-## 2. Текущее состояние
+## 2. Реализация (2026-07-12)
 
-### Что есть сейчас (ledtrees-esp32)
+### nf-interpreter (ветка `dev`)
 
-- `LedTrees.Device.Loader` в deploy-регионе; приложение `LedTrees.Device.App` он грузит
-  динамически через `Assembly.Load(byte[])` из littlefs (A/B-каталоги `ota/app1|app2`,
-  `state.dat`) — реализовано в
-  [OtaManager.cs](../../../DevOps/ledtrees/ledtrees-esp32/nanoframework/main/LedTrees.Device/OTA/OtaManager.cs).
-  В целевой архитектуре этот механизм упраздняется.
-- Доставка только локальная: Wi-Fi AP `LedTrees_startup` + `DeploymentTerminal`
-  (утилита `LedTrees.DeviceConsole`). Остаётся как recovery/сервисный путь.
-- Прошивка обновляется только по USB (`nanoff` / esptool).
-- **Группа уже самосинхронизируется по приложению**: SCREEN при регистрации на MAIN
-  сообщает свой `OtaManager.Hash`; при несовпадении MAIN шлёт `NeedUpdateCommand`
-  ([ScreenService.cs:129](../../../DevOps/ledtrees/ledtrees-esp32/nanoframework/main/LedTrees.Device.App/Screen/Services/ScreenService.cs#L129)),
-  и SCREEN скачивает деплой с MAIN по TCP (`DownloadService`). Этот механизм
-  сохраняется и расширяется на полный bundle (§9).
+| Компонент | Где |
+|---|---|
+| Таблица разделов OTA | [partitions_nanoclr_16mb_ota.csv](targets/ESP32/_IDF/esp32s3/partitions_nanoclr_16mb_ota.csv) |
+| Опция `NF_FEATURE_OTA` | [Kconfig.features](Kconfig.features), включена во всех LEDTREES defconfig |
+| Нативное ядро (NVS state machine, слоты, stage, commit, confirm) | [targetHAL_Ota.c](targets/ESP32/_common/targetHAL_Ota.c) / [targetHAL_Ota.h](targets/ESP32/_include/targetHAL_Ota.h) |
+| Boot-hook `NF_Ota_ApplyPending()` | [app_main.c](targets/ESP32/_IDF/esp32s3/app_main.c), после `nvs_flash_init`, до задач CLR |
+| Регион nanoCLR через `esp_ota_get_running_partition()` | [Device_BlockStorage.c](targets/ESP32/_common/Device_BlockStorage.c) |
+| Interop `interoplib.Ota` (нативная часть, чексумма `0x52D58C6F`) | [InteropAssemblies/interoplib](InteropAssemblies/interoplib) |
+| Упаковщик `.ltfw` для CI | [scripts/pack-ltfw.py](scripts/pack-ltfw.py) |
+| Rollback бутлоадера | `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y` в sdkconfig lt_v1/v2 |
+| Прошивочные задачи (0x20000 + сброс otadata) | .vscode/tasks.json, launch.json |
 
-### Факты платформы, влияющие на дизайн
+### ledtrees-esp32 (ветка `dev`)
 
-Текущая таблица разделов ([partitions_nanoclr_16mb.csv](targets/ESP32/_IDF/esp32s3/partitions_nanoclr_16mb.csv)):
+| Компонент | Где |
+|---|---|
+| Точка входа + recovery | `LedTrees.Device.App/Program.cs` (проект Loader удалён; `OutputType Exe`) |
+| Идентичность bundle (версия, `Id` для группы, WebPath, Confirm) | `LedTrees.Device/OTA/Bundle.cs` |
+| Установка `.ltfw` (кэш на SD, полное/лёгкое, wwwroot) | `LedTrees.Device/OTA/BundleInstaller.cs` (+`Crc32.cs`) |
+| Interop `Ota` (managed) | `interoplib/Ota.cs` |
+| Приём `.ltfw`: HTTP | `WebService` — `POST /upload-update` |
+| Приём `.ltfw`: TCP-терминал | `DeploymentTerminal` (команда 2), клиент — `LedTrees.DeviceConsole` (сам пакует bundle) |
+| Раздача `.ltfw` группе | `DownloadService` (отдаёт кэш с SD по `Bundle.Id`) |
+| Подтверждение после health-check | `Startup.Run` → `Bundle.ConfirmIfPending()` после старта сервисов |
 
-```
-nvs,      data, nvs,      0x9000,   0x6000
-phy_init, data, phy,      0xf000,   0x1000
-factory,  app,  factory,  0x10000,  0x1A0000    # nanoCLR
-deploy,   data, 0x84,     0x1B0000, 0x2E0000    # managed-код
-config,   data, littlefs, 0x490000, 0x300000
-# свободно с 0x790000 — ~8.4 MB
-```
+Версия bundle — `AssemblyVersion` сборки `LedTrees.Device` (сейчас 2.1.0.0);
+`Board.SoftwareVersion` читает её же, упаковщики берут её из DLL.
 
-- **nanoBooter отсутствует** (`CONFIG_NF_TARGET_HAS_NANOBOOTER` не установлен) — загрузкой
-  управляет штатный бутлоадер ESP-IDF ⇒ для nanoCLR используем A/B-механизм IDF.
-- **Deploy-регион memory-mapped и исполняется на месте**
-  ([Device_BlockStorage.c:53](targets/ESP32/_common/Device_BlockStorage.c#L53)) —
-  работающий код не может перезаписать сам себя; отсюда `stage` и boot-hook.
-- Партиция nanoCLR ищется по subtype `factory` в `FixUpBlockRegionInfo()`
-  ([Device_BlockStorage.c:141](targets/ESP32/_common/Device_BlockStorage.c#L141)) —
-  при переходе на `ota_0/ota_1` это надо менять.
-- CSV таблицы разделов выбирается по размеру flash в
-  [binutils.ESP32.cmake:455](CMake/binutils.ESP32.cmake#L455).
-- Для доставки всё есть: Wi-Fi, `System.Net` (HTTPS), `System.Security.Cryptography`,
-  config-блок для сертификатов, `littlefs`.
+### Проверено на железе
+
+Сквозные OTA-циклы через `POST /upload-update`: лёгкий (managed+web) и полный
+(со сменой A/B-слота) — оба до состояния `CONFIRMED`; wwwroot распакован на SD,
+админка работает (WebSocket :8080, `otaSlot: 4 = Confirmed` в init), DHCP-сервер AP
+выдаёт адреса клиентам. Managed-образ фактически 27 сборок / **322 KB** — запас
+в deploy-партиции (2944 KB) ~9×.
+
+### Попутно найденные и исправленные баги
+
+- **toolchain esp32s3/s2 без `-fno-builtin-*`**: xtensa GCC 14 разворачивал запись
+  структуры в APB-регистр в побайтовые `s8i` — ломало SDMMC (карта не инициализировалась,
+  `sdmmc_host_wait_for_event 0x107`). Фикс: [toolchain.xtensa-esp32s3-elf.cmake](CMake/toolchain.xtensa-esp32s3-elf.cmake)
+  (+s2), требует чистого build-каталога.
+- **DHCP-сервер на AP** терялся при миграции на IDF 5.5: nf снимает флаг DHCP_SERVER
+  с netif, а `esp_wifi_set_config` перезапускает AP и убивает уже запущенный сервер.
+  Фикс: явный `esp_netif_dhcps_start` **после** конфигурации AP, с ожиданием поднятия
+  netif ([NF_ESP32_Wireless.cpp](targets/ESP32/_Network/NF_ESP32_Wireless.cpp)).
+- **Kconfig не перегенерировал `.config` при смене пресета** (таймстампы) — фикс через
+  stamp-файл в [NF_Kconfig.cmake](CMake/Modules/NF_Kconfig.cmake).
+- SDMMC ограничен 20 MHz на S3/P4 (GPIO-матрица, esp-idf #8521); диагностика монтирования
+  через `esp_rom_printf` в не-RTM сборках.
+- Фронтенд админки: полифилл `crypto.randomUUID` (недоступен по HTTP) и миграция
+  `DOM.tag` на options-API `@brandup/ui` (`{ class: ... }`).
+
+### Факты платформы, на которых стоит дизайн
+
+- **nanoBooter отсутствует** — загрузкой управляет штатный бутлоадер ESP-IDF ⇒ для
+  nanoCLR используется A/B-механизм IDF (`otadata` + rollback).
+- **Deploy-регион memory-mapped и исполняется на месте** — работающий код не может
+  перезаписать сам себя; отсюда `stage` и boot-hook.
+- Managed-образ deploy-региона = .pe-файлы подряд, каждый выровнен до 4 байт — так их
+  читает CLR ([CLRStartup.cpp:243](src/CLR/Startup/CLRStartup.cpp#L243)).
+- CRC32 для проверки stage — стандартный zlib-совместимый: `esp_rom_crc32_le` (нативно)
+  ↔ `LedTrees.Device.OTA.Crc32` (managed) ↔ `zlib.crc32` (CI).
 
 ## 3. Таблица разделов (16 MB)
 
-Файл `targets/ESP32/_IDF/esp32s3/partitions_nanoclr_16mb_ota.csv`:
+Файл [partitions_nanoclr_16mb_ota.csv](targets/ESP32/_IDF/esp32s3/partitions_nanoclr_16mb_ota.csv):
 
 ```
 # Name,    Type, SubType,  Offset,   Size
@@ -113,26 +143,28 @@ ota_1,     app,  ota_1,    0x1C0000, 0x1A0000   # nanoCLR слот B (1664 KB)
 deploy,    data, 0x84,     0x360000, 0x2E0000   # managed-образ, рабочая копия (2944 KB)
 stage,     data, 0x85,     0x640000, 0x2E0000   # staging нового managed-образа
 backup,    data, 0x86,     0x920000, 0x2E0000   # копия старого managed-образа для отката
-config,    data, littlefs, 0xC00000, 0x400000   # littlefs 4 MB: конфиг + wwwroot-{ver} ×2
+config,    data, littlefs, 0xC00000, 0x400000   # littlefs 4 MB: конфигурация
 ```
 
 Замечания:
 
-- app-партиции выровнены по 0x10000 (требование IDF); размер слота = текущему `factory`.
+- app-партиции выровнены по 0x10000 (требование IDF); nanoCLR без BLE занимает слот
+  на ~79% (1.35 MB).
 - `stage`/`backup` — data-партиции с кастомными subtype, бутлоадер их не трогает.
-- deploy 2944 KB теперь вмещает Loader **и** App с библиотеками — размер сохранён от
-  текущей таблицы, где так уже живёт полный managed-стек (Loader тянет почти все
-  зависимости App). После замера можно перекроить в пользу littlefs.
-- littlefs 4 MB: конфигурация + две версии `wwwroot` (текущая и предыдущая для отката).
-- Смещения `nvs`/`config` меняются ⇒ **переход на новую таблицу — только по USB** (§10).
+- managed-образ фактически 322 KB при 2944 KB партиции — при желании `deploy/stage/backup`
+  можно ужать (например до 1 MB) и отдать место littlefs; пока не трогаем.
+- **wwwroot и кэш `.ltfw` живут на SD-карте** (`{MmcPath}/ota/`), littlefs — только
+  конфигурация. SD есть на всех устройствах (обязательна: `Board.Init` требует её).
+- Смещения `nvs`/`config` изменились относительно старой таблицы ⇒ **переход — только
+  по USB** (§10).
 
 ## 4. Артефакт: `firmware-{ver}.ltfw`
 
 ```
-struct LtFwHeader {                     // фиксированный размер, в начале файла
+struct LtFwHeader {                     // 160 байт, little-endian, в начале файла
     uint32_t magic;                     // 'LTFW'
-    uint32_t formatVersion;
-    char     version[32];               // единая версия bundle
+    uint32_t formatVersion;             // 1
+    char     version[32];               // единая версия bundle (NUL-padded utf-8)
     uint32_t clrOffset,  clrSize;       // nanoCLR.bin (app-образ IDF)
     uint8_t  clrSha256[32];
     uint32_t mngdOffset, mngdSize;      // managed-образ deploy-региона
@@ -142,73 +174,78 @@ struct LtFwHeader {                     // фиксированный разме
 };
 ```
 
-- Смещения секций в заголовке ⇒ устройство скачивает заголовок (один маленький Range-
-  запрос), решает «полное или лёгкое», и дальше качает только нужные секции по Range.
-- nanoCLR.bin — обычный артефакт CI-сборки таргета; managed-образ — выход
-  `nanoff --deploy` по объединённому решению Loader+App; web-секция — в том же формате
-  файловых записей, что текущий app-бандл (`nameLen, name, dataLen, data`).
-- Упаковщик — `scripts/pack-ltfw.py` в CI, версия проставляется из тега релиза.
+- Смещения секций в заголовке ⇒ можно скачивать заголовок отдельно (Range) и решать
+  «полное/лёгкое» до скачивания артефакта. Текущие транспорты (upload-update,
+  терминал) передают файл целиком — устройство кэширует его на SD и решает локально.
+- nanoCLR.bin — артефакт сборки таргета (`build/nanoCLR.bin`); managed-образ —
+  конкатенация .pe из bin приложения (4-байтовое выравнивание); web-секция — файлы
+  `wwwroot` (относительные пути, подкаталоги поддерживаются).
+- Упаковщики: [scripts/pack-ltfw.py](scripts/pack-ltfw.py) (CI; также выдаёт JSON-фрагмент
+  для манифеста) и `LedTrees.DeviceConsole` (локально, версия из `LedTrees.Device.dll`).
 
 ## 5. Поток обновления
 
 ### Полное (nanoCLR изменился)
 
 ```
-OtaUpdater (managed)                    Boot-hook (нативный, до ClrStartup)
---------------------                    -----------------------------------
+BundleInstaller (managed)               Boot-hook (нативный, до задач CLR)
+-------------------------               -----------------------------------
+0. .ltfw → кэш на SD (идемпотентно)
 1. CLR-секция → неактивный слот
-   (esp_ota_begin/write/end;
+   (Ota.FirmwareBegin/Write/End;
     слот НЕ переключён)
-2. managed-секция → stage, sha256
-3. web-секция → littlefs wwwroot-{ver}
-4. NVS: state = STAGED,
-        target_slot = <новый слот>
-5. esp_ota_set_boot_partition  ← ТОЧКА ФИКСАЦИИ (атомарно)
-6. reboot
-                                        7. запуск из нового слота (PENDING_VERIFY);
+2. managed-секция → stage
+   (Ota.StageBegin/Write/StageCommit:
+    проверка CRC32, NVS: STAGED)
+3. web-секция → SD ota/wwwroot-{ver}
+4. Ota.CommitFull():
+   NVS: target_slot = <новый слот>
+   esp_ota_set_boot_partition  ← ТОЧКА ФИКСАЦИИ (атомарно)
+5. reboot
+                                        6. запуск из нового слота (PENDING_VERIFY);
                                            слот == target_slot и state == STAGED:
                                            a. deploy → backup
                                            b. NVS: state = COPYING
                                            c. erase deploy; stage → deploy; CRC
                                            d. NVS: state = APPLIED, boot_attempts = 0
-                                        8. старт CLR → Loader → Startup.Run()
-9. health-check пройден (Wi-Fi поднят,
-   основной цикл работает)
-   → Ota.Confirm():
+                                        7. старт CLR → Program.Main → Startup.Run()
+8. сервисы запущены (health-check)
+   → Bundle.ConfirmIfPending():
      esp_ota_mark_app_valid…
-     NVS: state = CONFIRMED
+     NVS: state = CONFIRMED;
+     чистка чужих wwwroot-*
 ```
 
-До шага 5 все записи (слот, stage, wwwroot-{ver}) — пассивные данные: сбой на любом
-этапе оставляет устройство на старой версии, докачка по Range. После шага 5 всё решает
-boot-hook, каждый его шаг идемпотентен (источник копирования не затирается до успеха).
+До шага 4 все записи (кэш, слот, stage, wwwroot-{ver}) — пассивные данные: сбой на любом
+этапе оставляет устройство на старой версии. После шага 4 всё решает boot-hook, каждый
+его шаг идемпотентен (источник копирования не затирается до успеха).
 
-**Откат.** В `sdkconfig.default_lt_v*.esp32s3` включается
-`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`. Новый слот грузится в `PENDING_VERIFY`; если
-`Confirm()` не вызван до следующего ресета (крэш CLR, watchdog, не поднялся managed-стек,
-таймаут health-check) — бутлоадер возвращает старый слот. Boot-hook на старом слоте видит
-`target_slot != running_slot` при `state ∈ {COPYING, APPLIED}` и восстанавливает deploy
-из `backup` — старый стек целиком. Это закрывает главный риск: «слот откатился, а
-managed-образ в deploy уже новый».
+**Откат.** Новый слот грузится в `PENDING_VERIFY`; если `Confirm()` не вызван до
+следующего ресета (крэш CLR, watchdog, не поднялся managed-стек) — бутлоадер возвращает
+старый слот. Boot-hook на старом слоте видит `target_slot != running_slot` при
+`state ∈ {COPYING, APPLIED}` и восстанавливает deploy из `backup` — старый стек целиком.
+Это закрывает главный риск: «слот откатился, а managed-образ в deploy уже новый».
 
 ### Лёгкое (clrSha256 совпал с текущим слотом)
 
-Шаг 1 пропускается, точка фиксации — `NVS: state = STAGED` без `target_slot`
-(шаг 5 не выполняется). Boot-hook применяет stage → deploy так же. Поскольку ota-слот
-не менялся, rollback IDF недоступен — откат делает сам boot-hook: при `state = APPLIED`
-он инкрементирует `boot_attempts`; если приложение трижды не дошло до `Confirm()` —
-`backup → deploy`, `state = ROLLED_BACK`. Устройство работает на прежней версии и
-сообщает об инциденте в телеметрию.
+Шаги 1 и 4 пропускаются: точка фиксации — `NVS: state = STAGED` (внутри `StageCommit`),
+без `target_slot`. Boot-hook применяет stage → deploy так же. Поскольку ota-слот не
+менялся, rollback IDF недоступен — откат делает сам boot-hook: при `state = APPLIED` он
+инкрементирует `boot_attempts`; если приложение трижды не дошло до `Confirm()` —
+`backup → deploy`, `state = ROLLED_BACK`.
+
+Замечание: сравнение `clrSha256` идёт с фактическим образом в слоте
+(`esp_partition_get_sha256`). USB-прошивка с `--flash_size detect` патчит заголовок
+образа, поэтому первое OTA после USB-прошивки может пойти полным путём — это безвредно.
 
 ### Web-ассеты
 
-`wwwroot` не влезает в deploy-регион, поэтому живёт в littlefs, версионированно:
-каталог `wwwroot-{ver}`. Managed-код скомпилирован со своей версией bundle и обращается
-только к «своему» каталогу — указатель не нужен, откат согласован автоматически (старый
-образ ищет старый каталог, он не тронут). После `Confirm()` каталоги других версий
-удаляются.
+`wwwroot` живёт на SD, версионированно: `ota/wwwroot-{ver}`. Managed-код скомпилирован
+со своей версией bundle и обращается только к «своему» каталогу — указатель не нужен,
+откат согласован автоматически (старый образ ищет старый каталог, он не тронут).
+После `Confirm()` каталоги других версий удаляются.
 
-## 6. Состояния (NVS)
+## 6. Состояния (NVS, namespace `nf_ota`)
 
 ```
 IDLE → STAGED(target_slot?) → COPYING → APPLIED → CONFIRMED
@@ -219,38 +256,48 @@ IDLE → STAGED(target_slot?) → COPYING → APPLIED → CONFIRMED
 
 NVS выбран вместо littlefs/config: доступен boot-hook'у до инициализации файловой
 системы, атомарен на уровне записи ключа, переживает переформатирование littlefs.
+Ключи: `state`, `target` (subtype слота или 0xFF для лёгкого), `stage_len`,
+`stage_crc`, `attempts`.
 
-## 7. Managed API (нативный interop `LedTrees.Ota`)
+## 7. API
 
-Только то, чего нельзя сделать из managed-кода (ota-слоты, stage, NVS-состояния);
-вся оркестрация — в `OtaUpdater` (managed):
+### Interop `interoplib.Ota` (нативный слой, реализован)
 
 ```csharp
-public static class Ota
+public class Ota
 {
     // nanoCLR (неактивный слот)
-    static void  FirmwareBegin(int totalSize);      // esp_ota_begin
-    static void  FirmwareWrite(byte[] chunk, int len);
-    static void  FirmwareEnd();                     // esp_ota_end (валидация образа)
-    static byte[] RunningFirmwareSha256 { get; }    // для решения «полное/лёгкое»
+    static void   FirmwareBegin(int totalSize);
+    static void   FirmwareWrite(byte[] data, int length);
+    static void   FirmwareEnd();                      // валидация образа средствами IDF
+    static byte[] GetRunningFirmwareSha256();         // решение «полное/лёгкое»
 
     // managed-образ (stage-партиция)
-    static void  StageBegin(int totalSize);         // erase stage
-    static void  StageWrite(byte[] chunk, int len);
-    static void  StageCommit(byte[] sha256);        // проверка + NVS STAGED
+    static void   StageBegin(int totalSize);
+    static void   StageWrite(byte[] data, int length);
+    static void   StageCommit(uint crc32);            // zlib-CRC32; фиксация лёгкого пути
 
-    static void  CommitFullAndReboot();             // set_boot_partition + reboot
-    static void  CommitLightAndReboot();            // только NVS STAGED + reboot
-    static void  Confirm();                         // mark_app_valid + NVS CONFIRMED
-    static bool  IsPendingConfirm { get; }          // приложение должно вызвать Confirm
-    static string BundleVersion { get; }
+    static void   CommitFull();                       // фиксация полного пути (otadata)
+    static void   Confirm();                          // mark_app_valid + CONFIRMED
+    static OtaState State { get; }
+    static bool   IsPendingConfirm { get; }
 }
 ```
 
-Скачивание, ретраи, парсинг манифеста, Range-докачка, индикация прогресса (на гирлянде!) —
-на managed-стороне: этот слой итерируется без пересборки CLR.
+Обёртки бросают исключения; reboot — на вызывающей стороне (`Board.Reboot()`).
 
-## 8. Манифест и доставка
+### Managed-слой (реализован)
+
+- `Bundle` — идентичность: `Version` (= AssemblyVersion `LedTrees.Device`),
+  детерминированный `Id` (16 байт, для группового протокола), `WebPath`,
+  `BundleFilePath` (кэш на SD), `ConfirmIfPending()`.
+- `BundleInstaller` — `DownloadToFile(stream, len, logger)` (кэш на SD, идемпотентно),
+  `TryReadHeader()` (валидация кэша перед раздачей), `InstallFromFile(logger)`
+  (полное/лёгкое → `Ota.*` → wwwroot → reboot).
+
+Оркестрация доставки (манифест, HTTPS, ретраи) — будущий `OtaUpdater` (фаза 2).
+
+## 8. Манифест и доставка (фаза 2)
 
 `GET https://ota.ledtrees.example/{channel}/{hw}/manifest.json`:
 
@@ -259,7 +306,7 @@ public static class Ota
   "bundle": {
     "version": "2.4.0",
     "url": ".../firmware-2.4.0.ltfw",
-    "size": 2530000,
+    "size": 1900000,
     "sha256": "…",
     "clrSha256": "…",
     "mngdSha256": "…",
@@ -271,197 +318,137 @@ public static class Ota
 
 - Каналы `dev` / `beta` / `prod`; `hw`: `lt-v1` / `lt-v2`. Канал — в конфиге устройства.
 - `clrSha256` в манифесте позволяет решить «полное/лёгкое» до скачивания артефакта.
-- Опрос по таймеру с джиттером + push «проверь обновления» по существующему каналу
-  управления (MQTT/BLE-команда).
+- Опрос по таймеру с джиттером + push «проверь обновления» по каналу управления.
 - Докачка: HTTP Range с продолжением записи по сохранённому смещению.
+- `pack-ltfw.py --manifest-fragment` уже генерирует значения для манифеста.
+
+Уже работающие транспорты (вне сервера): `POST /upload-update` (админка/скрипты) и
+TCP-терминал `DeviceConsole` — оба принимают готовый `.ltfw`.
 
 ## 9. Групповое обновление: роли MAIN и SCREEN
 
 Инсталляция — группа устройств: MAIN (оркестратор экрана) + N×SCREEN (плееры).
 Роль — runtime-конфигурация (`ConfigurationManager.Role`), **bundle один для всех ролей**.
 
-**SCREEN'ы обновляются автоматически вслед за MAIN** — по существующей схеме
-«регистрация → сравнение → NeedUpdate → скачивание с MAIN», расширенной на полный bundle:
+**SCREEN'ы обновляются автоматически вслед за MAIN** по схеме «регистрация → сравнение →
+NeedUpdate → скачивание с MAIN». Механика реализована (перевод существующего протокола
+на bundle), сквозная проверка на группе устройств — впереди:
 
 ```
 Update-сервер ──HTTPS──▶ MAIN ──UDP: NeedUpdate──▶ SCREEN 1..N
                           │  ◀──TCP: .ltfw ────────┘
-                          └─ кэш .ltfw + манифест на SD (Storage.MmcPath)
+                          └─ кэш .ltfw на SD (Bundle.BundleFilePath)
 ```
 
 1. **Только MAIN ходит на update-сервер.** SCREEN'ам сервер (и интернет вообще) не нужен —
    их источник истины MAIN.
-2. MAIN скачивает `.ltfw` + манифест, кэширует на SD, обновляет **сначала себя** (§5).
-   Раздача группе начинается только после собственного `Confirm()` — не раскатываем на
-   группу то, что не пережило health-check на MAIN.
-3. При регистрации SCREEN сообщает `BundleVersion` (вместо нынешнего Guid-хэша).
-   Несовпадение с версией MAIN → `NeedUpdate` → SCREEN скачивает `.ltfw` с MAIN по TCP
-   и применяет тот же поток §5; решение «полное/лёгкое» каждый SCREEN принимает сам по
-   своему `clrSha256`.
-4. **Сходимость, а не монотонность**: группа сводится к версии MAIN, в том числе вниз —
-   если MAIN откатился, обновившиеся раньше SCREEN'ы даунгрейдятся к нему.
+2. MAIN обновляет **сначала себя**; раздача группе — только после собственного
+   `Confirm()` (кэш `.ltfw` уже на SD).
+3. При регистрации SCREEN сообщает `Bundle.Id` (формат кадра не менялся — 16 байт).
+   Несовпадение → `NeedUpdate` → SCREEN скачивает `.ltfw` с MAIN по TCP
+   (`DownloadService`, тип `Deploy`) и применяет поток §5; «полное/лёгкое» каждый
+   SCREEN решает сам по своему `clrSha256`. `DownloadService` проверяет целостность
+   кэша (`TryReadHeader`) перед раздачей.
+4. **Сходимость, а не монотонность**: группа сводится к версии MAIN, в том числе вниз.
    Anti-downgrade (§11) действует только на паре «MAIN ↔ сервер».
-5. Новый или сервисный SCREEN с любой заводской версией догоняет группу автоматически
-   при первом подключении — как и сейчас.
-6. **Доверие end-to-end**: вместе с bundle MAIN отдаёт кэшированный подписанный манифест;
-   SCREEN проверяет подпись и sha256 сам — MAIN как транспорт не является доверенным
-   звеном.
-7. **Окно смешанных версий** (MAIN уже новый, SCREEN'ы ещё нет) закрывается протоколом:
-   UDP/TCP-протокол группы несёт `DeviceProtocolVersion` (уже есть) и меняется
-   консервативно; SCREEN с несовпадающей версией исключается из показа до синка —
-   это происходит естественно, т.к. `NeedUpdate` срабатывает при регистрации.
-8. **Планирование**: раскатка на группу — в простое, не во время показа; SCREEN'ы
-   обновляются последовательно или с малой параллельностью (память MAIN ограничена).
-   SCREEN, трижды не сумевший обновиться, остаётся на старой версии, выпадает из показа
-   и репортится в телеметрию через MAIN.
+5. Новый или сервисный SCREEN с любой версией догоняет группу при первом подключении.
+6. **Доверие end-to-end** (фаза 2): вместе с bundle MAIN отдаёт кэшированный подписанный
+   манифест; SCREEN проверяет подпись и sha256 сам.
+7. **Окно смешанных версий** закрывается протоколом: кадры несут
+   `DeviceProtocolVersion`; SCREEN с несовпадающей версией выпадает из показа до синка.
+8. **Планирование** (фаза 2): раскатка в простое; ограниченная параллельность;
+   SCREEN после трёх неудач остаётся на старой версии и репортится в телеметрию.
 
 ## 10. Миграция существующих устройств
 
-Переход на OTA-таблицу разделов — один раз по USB:
+Проверенный порядок первичной установки (он же — миграция со старой таблицы), один раз
+по USB:
 
-1. `esptool erase_flash` (смещения nvs/config меняются, littlefs пересоздаётся);
-2. полный образ с новой таблицей: bootloader + partition table + ota_0 (nanoCLR) +
-   deploy (managed-образ) + wwwroot;
-3. повторная провизия (AP `LedTrees_startup` + `DeviceConsole` — уже есть).
+1. `esptool erase_flash`;
+2. `esptool write_flash 0x0 bootloader.bin 0x8000 partition-table.bin
+   0xf000 ota_data_initial.bin 0x20000 nanoCLR.bin 0x360000 <managed-образ>`
+   (всё из `build/`, managed-образ — конкатенация .pe; есть задача
+   `nanoCLR: Flash (esptool)` в tasks.json — без deploy-региона);
+3. первая загрузка: приложение поднимает AP, DHCP выдаёт адрес;
+4. `POST /upload-update` с `.ltfw` доустанавливает wwwroot (и далее все обновления — OTA).
 
-Дальше всё — только OTA. Новые устройства прошиваются OTA-образом с завода.
 Dev-итерации не меняются: деплой managed-кода из Visual Studio в deploy-регион по USB —
-штатный workflow nanoFramework.
+штатный workflow nanoFramework. JTAG-прошивка nanoCLR — по 0x20000 (launch.json сбрасывает
+otadata, чтобы плата не грузила старый слот).
 
-## 11. Безопасность
+## 11. Безопасность (фаза 2/3)
 
 1. **TLS + pinning**: корневой сертификат update-сервера в config-блоке
    (`NF_FEATURE_HAS_CONFIG_BLOCK=y` уже включён).
 2. **Подпись манифеста** ECDSA P-256, публичный ключ вшит в прошивку; артефакт
-   аутентифицируется по sha256 (общему и посекционным) из подписанного манифеста —
-   файлы можно раздавать с CDN.
-3. **Целостность на устройстве**: sha256 каждой секции при записи; для nanoCLR
-   дополнительно встроенная проверка `esp_ota_end`.
+   аутентифицируется по sha256 (общему и посекционным) из подписанного манифеста.
+3. **Целостность на устройстве** (уже работает): CRC32 stage при записи и после
+   копирования в deploy; для nanoCLR — встроенная проверка `esp_ota_end`.
 4. **Anti-downgrade**: отказ от версий ниже текущей (кроме канала `dev`).
-5. **(опционально, фаза 3)** Secure Boot V2 + подписанные app-образы IDF. Необратимый
-   eFuse — включать только после обкатки пайплайна.
+5. **(фаза 3)** Secure Boot V2 + подписанные app-образы IDF. Необратимый eFuse —
+   включать только после обкатки пайплайна.
 
 ## 12. Матрица сбоев
 
 | Сбой | Результат |
 |---|---|
-| Питание при скачивании любой секции | точка фиксации не пройдена — работает старая версия; докачка по Range |
-| Питание между STAGED и `set_boot_partition` | то же: STAGED-данные пассивны |
+| Питание при скачивании .ltfw | кэш на SD перезаписывается при следующей попытке; точки фиксации не пройдены |
+| Питание между STAGED и `set_boot_partition` | STAGED-данные пассивны — работает старая версия |
 | Питание при копировании stage→deploy | state = COPYING, после ресета копирование повторяется |
-| Новый CLR не стартует / паникует (полное) | watchdog ×3 → бутлоадер откатывает слот; boot-hook восстанавливает deploy из backup |
+| Новый CLR не стартует / паникует (полное) | бутлоадер откатывает слот; boot-hook восстанавливает deploy из backup |
 | Managed-стек не дошёл до `Confirm()` (полное) | нет mark_valid → откат слота при следующем ресете + restore backup |
 | Managed-стек не дошёл до `Confirm()` (лёгкое) | boot_attempts ≥ 3 → boot-hook: backup → deploy, ROLLED_BACK |
-| Приложение зависло, не крэш | таймаут health-check → reboot без Confirm → соответствующий откат |
-| Питание при записи wwwroot-{ver} | каталог не используется до старта новой версии; докачка/перезапись идемпотентны |
-| Битый манифест / подпись / hash mismatch | артефакт отброшен до записи во flash |
-| Питание SCREEN при скачивании с MAIN | обычный сбой скачивания: точка фиксации не пройдена, `NeedUpdate` при следующей регистрации повторит |
-| SCREEN трижды не смог обновиться | остаётся на старой версии, исключён из показа (несовпадение версий), репорт в телеметрию через MAIN |
-| MAIN откатился, часть SCREEN'ов уже обновилась | группа сводится к версии MAIN: обновившиеся SCREEN'ы даунгрейдятся (§9 п.4) |
+| Приложение упало на старте при pending-обновлении | `Program.Main` перезагружает устройство → соответствующий откат |
+| Питание при записи wwwroot-{ver} | каталог не используется до старта новой версии; перезапись идемпотентна |
+| Битый .ltfw (заголовок/CRC) | отбрасывается до точек фиксации (`TryReadHeader`/`StageCommit`) |
+| Питание SCREEN при скачивании с MAIN | обычный сбой скачивания; `NeedUpdate` при следующей регистрации повторит |
+| SCREEN трижды не смог обновиться | остаётся на старой версии, выпадает из показа, репорт в телеметрию |
+| MAIN откатился, часть SCREEN'ов обновилась | группа сводится к версии MAIN: SCREEN'ы даунгрейдятся (§9 п.4) |
 
 Во всех сценариях отката устройство остаётся на согласованной тройке
 «nanoCLR + managed-образ + wwwroot» одной версии, а группа сходится к версии MAIN.
 
 ## 13. План внедрения
 
-**Фаза 1 — механика OTA**
-- nf-interpreter: таблица `_ota`, boot-hook (`targetHAL_OtaApply.c`, вызов до
-  `CLRStartupThread` — [CLR_Startup_Thread.c:11](targets/ESP32/_nanoCLR/CLR_Startup_Thread.c#L11)),
-  `FixUpBlockRegionInfo` через `esp_ota_get_running_partition()`, rollback IDF,
-  interop `LedTrees.Ota`, `CONFIG_NF_FEATURE_OTA` в Kconfig/defconfig,
-  выбор CSV и адреса прошивки в [binutils.ESP32.cmake](CMake/binutils.ESP32.cmake).
-
-  > Статус (2026-07-12): нативная часть реализована — [partitions_nanoclr_16mb_ota.csv](targets/ESP32/_IDF/esp32s3/partitions_nanoclr_16mb_ota.csv),
-  > опция `NF_FEATURE_OTA` (вкл. во всех LEDTREES defconfig), rollback в sdkconfig,
-  > ядро [targetHAL_Ota.c](targets/ESP32/_common/targetHAL_Ota.c) (state machine в NVS,
-  > `NF_Ota_Firmware*/Stage*/CommitFull/Confirm`), boot-hook `NF_Ota_ApplyPending()` в
-  > [app_main.c](targets/ESP32/_IDF/esp32s3/app_main.c), `Device_BlockStorage.c` через
-  > `esp_ota_get_running_partition()`. Сборка ESP32_LEDTREES_V2 проходит; nanoCLR
-  > занимает слот ota_0 на 88%. Прошивка: nanoCLR теперь по 0x20000 + `ota_data_initial.bin`
-  > по 0xf000 (tasks.json/launch.json обновлены).
-  >
-  > Interop готов: класс `interoplib.Ota` (managed, в `nanoframework/main/interoplib`
-  > ledtrees-esp32) + нативная реализация поверх `NF_Ota_*` в
-  > [InteropAssemblies/interoplib](InteropAssemblies/interoplib) (чексумма `0x52D58C6F`;
-  > заодно нативный interoplib синхронизирован с веткой `release` — методы
-  > brightness/play — с сохранением правок под IDF 5.5.4). CRC32 — стандартный
-  > zlib-совместимый (`esp_rom_crc32_le` ↔ `System.IO.Hashing.Crc32` ↔ `zlib.crc32`).
-  > Упаковщик бандла: [scripts/pack-ltfw.py](scripts/pack-ltfw.py).
-  >
-  > Managed-сторона (ledtrees-esp32) тоже готова: проект `LedTrees.Device.Loader`
-  > **удалён полностью** — точка входа (`Program.Main`) и `DeploymentTerminal`
-  > перенесены в `LedTrees.Device.App` (OutputType Exe); Assembly.Load-механизм
-  > и `OtaManager` удалены. `Bundle`
-  > (версия = AssemblyVersion LedTrees.Device → 2.1.0.0, детерминированный `Id`
-  > для группового протокола, `wwwroot-{ver}` на SD) + `BundleInstaller`
-  > (скачивание в кэш `ota/bundle.ltfw` на SD → полное/лёгкое по clrSha256 →
-  > `Ota.*` → reboot; подтверждение `Bundle.ConfirmIfPending()` в `Startup.Run`
-  > после старта сервисов). Групповой протокол переведён на bundle: регистрация
-  > несёт `Bundle.Id`, `NeedUpdate` → SCREEN качает кэшированный .ltfw с MAIN
-  > (`DownloadService`), формат кадров не менялся. Локальная доставка —
-  > `DeploymentTerminal`/`upload-update`/`DeviceConsole` — принимает .ltfw
-  > (консоль сама пакует bundle из bin Loader'а + nanoCLR.bin + wwwroot).
-  > Managed-образ deploy-региона = .pe подряд с выравниванием до 4 байт
-  > ([CLRStartup.cpp:243](src/CLR/Startup/CLRStartup.cpp#L243)).
-  >
-  > Первый деплой на живое устройство (2026-07-12): erase → bootloader +
-  > OTA-таблица + `ota_data_initial.bin` + nanoCLR@0x20000, managed-образ
-  > (27 сборок, 322 KB) записан esptool'ом прямо в deploy@0x360000 — бутлоадер
-  > видит OTA-таблицу, CLR стартует из ota_0, Wire Protocol отвечает,
-  > приложение монтирует SD и поднимает AP. Попутно найден и исправлен
-  > критический баг toolchain (отсутствие `-fno-builtin-*` для esp32s3/s2 —
-  > GCC 14 писал в APB-регистры побайтово, ломая SDMMC; см.
-  > [toolchain.xtensa-esp32s3-elf.cmake](CMake/toolchain.xtensa-esp32s3-elf.cmake)).
-  > BLE исключён из LEDTREES defconfig.
-  >
-  > **Сквозная проверка на железе (2026-07-12): три OTA-цикла через
-  > `POST /upload-update` — лёгкий (managed+web) и полный (со сменой A/B-слота) —
-  > завершились состоянием CONFIRMED; wwwroot распакован на SD, админка работает
-  > (WebSocket :8080, init получен, `otaSlot: 4 = Confirmed`).**
-  > Попутные фиксы: DHCP-старт на AP перенесён из release
-  > ([NF_ESP32_Wireless.cpp](targets/ESP32/_Network/NF_ESP32_Wireless.cpp)),
-  > полифилл `crypto.randomUUID` во фронтенде (insecure context).
-  >
-  > Не сделано: подтвердить DHCP-сервер AP на клиентах (пока обход — статический
-  > IP), `OtaUpdater` (опрос манифеста с сервера по HTTPS — вместе с сервером в
-  > фазе 2), подпись манифеста, миграционная прошивка остальных устройств.
-- ledtrees-esp32: слияние Loader+App (статическая линковка, `Startup.Run()` напрямую),
-  `OtaUpdater`, вывод `OtaManager`/`Assembly.Load`-механизма из эксплуатации,
-  `DeploymentTerminal` остаётся как recovery.
-- Групповая раскатка: `BundleVersion` вместо Guid-хэша в регистрации, `NeedUpdate` +
-  `DownloadService` переводятся с app-деплоя на `.ltfw` (+ подписанный манифест),
-  кэш артефакта на SD у MAIN, планирование раскатки в простое (§9).
-- CI: упаковщик `.ltfw`, генерация и подпись манифеста.
-- Промежуточный вариант «удалённая доставка через существующий OtaManager» возможен,
-  если OTA нужен раньше готовности нативной части, но в целевую архитектуру не входит.
+**Фаза 1 — механика OTA: ✅ сделана и проверена на железе (2026-07-12).**
+Состав — §2. Коммиты: 7 в nf-interpreter (`4eb8129e..10ced896` + DHCP-fix),
+3 в ledtrees-esp32 (`7c4b3b6`, `0a2f27c`, `b3ef895`).
 
 **Фаза 2 — эксплуатация**
-- Update-сервер (статика + генератор манифестов в CI), каналы, постепенная раскатка
-  (процент устройств по хэшу serial), телеметрия версий и откатов по парку.
+- `OtaUpdater` (managed): опрос манифеста по HTTPS, скачивание с докачкой,
+  anti-downgrade, вызов `BundleInstaller`.
+- Update-сервер: статика + генератор манифестов в CI (`pack-ltfw.py
+  --manifest-fragment` уже готов), каналы dev/beta/prod, подпись манифеста.
+- Групповая раскатка в бою: планирование в простое, телеметрия версий и откатов,
+  проверка на реальной группе MAIN+SCREEN.
+- Миграционная прошивка остальных устройств (порядок — §10).
+- Постепенная раскатка (процент устройств по хэшу serial).
 
 **Фаза 3 — усиление**
 - Secure Boot V2, шифрование flash, дельта-обновления при необходимости.
 
 ## 14. Отклонённые альтернативы
 
-**Раздельные единицы обновления: firmware bundle (nanoCLR+Loader) + app bundle
-(`Assembly.Load` из littlefs)** — так работает сейчас. Отклонено, потому что .pe-сборки
-завязаны на точные версии managed-библиотек и чексуммы нативных сборок: почти каждое
-обновление nanoCLR ломает установленное приложение. Управление этим требует ABI-уровней,
-сцепленных транзакций «прошивка+приложение» с общей точкой фиксации и подтверждения,
-pending-слотов и пар `previous` в манифесте — класс сложности, который единый bundle
-устраняет по построению. Дополнительные минусы раздельной схемы: `Assembly.Load` копирует
-все сборки в RAM (вместо исполнения из flash), хрупкий `BinaryFormatter`-формат
-`state.dat`, reflection-контракт `Startup.Run/Stop` как ещё одна ось совместимости.
-Цена объединения — размер обновления (решено лёгким сценарием, ~1 MB при неизменном
-nanoCLR) и невозможность обновить приложение без reboot (его не было и раньше:
-`DeployApplication` завершается `Board.Reboot()`).
+**Раздельные единицы обновления: firmware (nanoCLR+Loader) + app bundle
+(`Assembly.Load` из файловой системы)** — так работало до 2026-07-12. Отклонено:
+.pe-сборки завязаны на точные версии managed-библиотек и чексуммы нативных сборок,
+почти каждое обновление nanoCLR ломает установленное приложение. Управление этим
+требует ABI-уровней, сцепленных транзакций «прошивка+приложение», pending-слотов и
+пар `previous` в манифесте — класс сложности, который единый bundle устраняет по
+построению. Дополнительные минусы раздельной схемы: `Assembly.Load` копирует сборки
+в RAM (вместо исполнения из flash), хрупкий `BinaryFormatter`-формат `state.dat`,
+reflection-контракт `Startup.Run/Stop` как ещё одна ось совместимости. Цена
+объединения — размер обновления (решено лёгким сценарием) и reboot при каждом
+обновлении (его не было и в старой схеме).
 
 ## 15. Открытые вопросы
 
-- Реальный размер объединённого managed-образа: влезает ли Loader+App+библиотеки в
-  2944 KB с запасом на рост; по результату — перекройка `deploy/stage/backup` ↔ littlefs.
+- Перекройка партиций: managed-образ занимает 322 KB из 2944 KB — можно ужать
+  `deploy/stage/backup` и отдать место littlefs/SD-независимому хранилищу. Не срочно.
 - Нужен ли `backup` (2944 KB), или при откате достаточно перекачать старую версию с
   сервера? Backup спасает офлайн-устройства — пока оставляем.
-- Канал push-уведомлений: MQTT уже есть в проде или только периодический опрос?
-- Формат web-секции при большом wwwroot: хватит ли littlefs 4 MB на две версии, либо
-  ввести общий контентно-адресуемый кэш файлов (по sha) вместо каталогов-версий.
+- Канал push-уведомлений для «проверь обновления»: MQTT или только периодический опрос?
+- Health-check перед `Confirm()` сейчас = «сервисы запущены»; стоит ли ждать
+  подключения Wi-Fi STA / первого кадра показа — решить по опыту эксплуатации.
+- Консоль на плате с внешним USB-UART (COM-порт) в normal-run не читается — для полевой
+  диагностики полагаться на веб-канал (`AdminDebugger` → WebSocket) и телеметрию.
