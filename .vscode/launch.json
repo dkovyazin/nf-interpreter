@@ -1,0 +1,74 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Run (no debugger): asks for the COM port, flashes the current build over
+      // USB, then opens the serial monitor. F5 with this selected = one-press
+      // flash + monitor. Runs in an integrated terminal via the built-in
+      // node-terminal launcher (PowerShell). The ${input:comPort} is asked once
+      // and reused for both flash and monitor.
+      "name": "nanoCLR: Flash + Monitor",
+      "type": "node-terminal",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "command": "${userHome}\\.espressif\\python_env\\idf5.5_py3.11_env\\Scripts\\esptool.exe --chip esp32s3 --port ${input:comPort} --baud 921600 --before default_reset --after hard_reset write_flash --flash_mode dio --flash_size detect --flash_freq 80m 0x0 build/bootloader/bootloader.bin 0x8000 build/partition_table/partition-table.bin 0x10000 build/nanoCLR.bin; ${userHome}\\.espressif\\python_env\\idf5.5_py3.11_env\\Scripts\\python.exe -m esp_idf_monitor --port ${input:comPort} build/nanoCLR.elf"
+    },
+    {
+      // Flash the freshly built nanoCLR to the board over the built-in USB-JTAG
+      // and start a native (C/C++) GDB debug session. Build first (CMake Tools:
+      // Build) so build/nanoCLR.bin/.elf are up to date.
+      "name": "nanoCLR: Flash + Debug (ESP32-S3 JTAG)",
+      "type": "cppdbg",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}/build/nanoCLR.elf",
+      "MIMode": "gdb",
+      "miDebuggerPath": "${userHome}/.espressif/tools/xtensa-esp-elf-gdb/16.3_20250913/xtensa-esp-elf-gdb/bin/xtensa-esp32s3-elf-gdb.exe",
+      "debugServerPath": "${userHome}/.espressif/tools/openocd-esp32/v0.12.0-esp32-20251215/openocd-esp32/bin/openocd.exe",
+      "debugServerArgs": "-s \"${userHome}/.espressif/tools/openocd-esp32/v0.12.0-esp32-20251215/openocd-esp32/share/openocd/scripts\" -f board/esp32s3-builtin.cfg",
+      "serverStarted": "Listening on port \\d+ for gdb connections",
+      "filterStderr": true,
+      "externalConsole": false,
+      "setupCommands": [
+        { "description": "connect to OpenOCD", "text": "target extended-remote localhost:3333" },
+        { "description": "halt core", "text": "monitor reset halt" },
+        { "description": "flash nanoCLR app", "text": "monitor program_esp \"${workspaceFolder}/build/nanoCLR.bin\" 0x10000 verify" },
+        { "description": "reset & halt", "text": "monitor reset halt" },
+        { "description": "refresh regs", "text": "flushregs" },
+        { "description": "limit hw watchpoints", "text": "set remote hardware-watchpoint-limit 2" }
+      ],
+      "launchCompleteCommand": "exec-continue"
+    },
+    {
+      // Attach to the firmware already flashed on the board (no re-flash) and
+      // debug it. Fast iteration when the .bin on the device is current.
+      "name": "nanoCLR: Attach + Debug (ESP32-S3 JTAG)",
+      "type": "cppdbg",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}/build/nanoCLR.elf",
+      "MIMode": "gdb",
+      "miDebuggerPath": "${userHome}/.espressif/tools/xtensa-esp-elf-gdb/16.3_20250913/xtensa-esp-elf-gdb/bin/xtensa-esp32s3-elf-gdb.exe",
+      "debugServerPath": "${userHome}/.espressif/tools/openocd-esp32/v0.12.0-esp32-20251215/openocd-esp32/bin/openocd.exe",
+      "debugServerArgs": "-s \"${userHome}/.espressif/tools/openocd-esp32/v0.12.0-esp32-20251215/openocd-esp32/share/openocd/scripts\" -f board/esp32s3-builtin.cfg",
+      "serverStarted": "Listening on port \\d+ for gdb connections",
+      "filterStderr": true,
+      "externalConsole": false,
+      "setupCommands": [
+        { "description": "connect to OpenOCD", "text": "target extended-remote localhost:3333" },
+        { "description": "reset & halt", "text": "monitor reset halt" },
+        { "description": "refresh regs", "text": "flushregs" },
+        { "description": "limit hw watchpoints", "text": "set remote hardware-watchpoint-limit 2" }
+      ],
+      "launchCompleteCommand": "exec-continue"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "comPort",
+      "type": "promptString",
+      "description": "COM port of the ESP32-S3 board (e.g. COM5)",
+      "default": "COM5"
+    }
+  ]
+}
