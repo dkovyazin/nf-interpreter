@@ -379,11 +379,16 @@ bool NF_Ota_StageCommit(uint32_t crc32)
         return false;
     }
 
-    // one atomic record write: nothing is committed until it lands
+    // one atomic record write: nothing is committed until it lands.
+    // In a FULL session (a firmware image was validated before staging) the
+    // record is bound to the new slot right away: a reboot in the window
+    // between this commit and CommitFull must NOT light-apply the new managed
+    // image against the still-running old nanoCLR - a bound record stays
+    // passive until the device actually boots from the target slot
     StateLoad();
     currentState.stageLength = stageWriteOffset;
     currentState.stageCrc = crc32;
-    currentState.target = OTA_TARGET_NONE;
+    currentState.target = otaFirmwareReady ? (uint8_t)otaUpdatePartition->subtype : OTA_TARGET_NONE;
     currentState.attempts = 0;
     currentState.state = OTA_STATE_STAGED;
     if (!StateStore())

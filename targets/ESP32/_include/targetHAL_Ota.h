@@ -70,7 +70,11 @@ extern "C"
     // erase the stage partition and start writing a new deployment image
     bool NF_Ota_StageBegin(uint32_t totalSize);
     bool NF_Ota_StageWrite(const uint8_t *data, uint32_t length);
-    // verify the staged image against crc32 and persist STAGED state (light commit point)
+    // verify the staged image against crc32 and persist STAGED state (light
+    // commit point). When a firmware image was validated in this session
+    // (FULL flow) the record is bound to that slot and stays passive until
+    // the device boots from it - so a reboot before CommitFull cannot
+    // light-apply the new deployment against the old nanoCLR.
     bool NF_Ota_StageCommit(uint32_t crc32);
 
     // ---- commit / confirm ----

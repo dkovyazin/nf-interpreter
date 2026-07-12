@@ -197,29 +197,33 @@ BundleInstaller (managed)               Boot-hook (нативный, до зад
     слот НЕ переключён)
 2. managed-секция → stage
    (Ota.StageBegin/Write/StageCommit:
-    проверка CRC32, NVS: STAGED)
+    проверка CRC32; рекорд STAGED сразу
+    привязан к новому слоту — пассивен,
+    пока устройство не загрузится из него)
 3. web-секция → SD ota/wwwroot-{ver}
 4. Ota.CommitFull():
-   NVS: target_slot = <новый слот>
    esp_ota_set_boot_partition  ← ТОЧКА ФИКСАЦИИ (атомарно)
 5. reboot
                                         6. запуск из нового слота (PENDING_VERIFY);
                                            слот == target_slot и state == STAGED:
                                            a. deploy → backup
-                                           b. NVS: state = COPYING
+                                           b. рекорд: state = COPYING
                                            c. erase deploy; stage → deploy; CRC
-                                           d. NVS: state = APPLIED, boot_attempts = 0
+                                           d. рекорд: state = APPLIED, attempts = 1
                                         7. старт CLR → Program.Main → Startup.Run()
 8. сервисы запущены (health-check)
    → Bundle.ConfirmIfPending():
      esp_ota_mark_app_valid…
-     NVS: state = CONFIRMED;
+     рекорд: state = CONFIRMED;
      чистка чужих wwwroot-*
 ```
 
 До шага 4 все записи (кэш, слот, stage, wwwroot-{ver}) — пассивные данные: сбой на любом
-этапе оставляет устройство на старой версии. После шага 4 всё решает boot-hook, каждый
-его шаг идемпотентен (источник копирования не затирается до успеха).
+этапе оставляет устройство на старой версии. Привязка STAGED-рекорда к слоту прямо в
+`StageCommit` (шаг 2) закрывает окно «ребут между StageCommit и CommitFull»: без неё
+boot-hook применил бы новый managed-образ лёгким путём против старого nanoCLR. После
+шага 4 всё решает boot-hook, каждый его шаг идемпотентен (источник копирования не
+затирается до успеха).
 
 **Откат.** Новый слот грузится в `PENDING_VERIFY`; если `Confirm()` не вызван до
 следующего ресета (крэш CLR, watchdog, не поднялся managed-стек) — бутлоадер возвращает
@@ -229,8 +233,8 @@ BundleInstaller (managed)               Boot-hook (нативный, до зад
 
 ### Лёгкое (clrSha256 совпал с текущим слотом)
 
-Шаги 1 и 4 пропускаются: точка фиксации — `NVS: state = STAGED` (внутри `StageCommit`),
-без `target_slot`. Boot-hook применяет stage → deploy так же. Поскольку ota-слот не
+Шаги 1 и 4 пропускаются: точка фиксации — рекорд `STAGED` (внутри `StageCommit`),
+без привязки к слоту (`target = NONE`). Boot-hook применяет stage → deploy так же. Поскольку ota-слот не
 менялся, rollback IDF недоступен — откат делает сам boot-hook: при `state = APPLIED` он
 инкрементирует `boot_attempts`; если приложение трижды не дошло до `Confirm()` —
 `backup → deploy`, `state = ROLLED_BACK`.
