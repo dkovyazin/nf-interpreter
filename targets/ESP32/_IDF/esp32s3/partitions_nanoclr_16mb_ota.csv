@@ -1,0 +1,27 @@
+################################################
+# ESP-IDF Partition Table for .NET nanoFramework
+# OTA variant (NF_FEATURE_OTA): A/B nanoCLR slots + staged deployment update
+# Name,   Type, SubType, Offset,  Size,
+###############################################################################################################################
+# if you change the partitions here, make sure to update the BlockRegions array in the device BlockStorage configuration file #
+# and the OTA state machine in targetHAL_Ota.c                                                                                #
+###############################################################################################################################
+nvs,      data, nvs,     0x9000,   0x6000,
+# OTA data: active slot selection (A/B), managed atomically by the IDF bootloader
+otadata,  data, ota,     0xf000,   0x2000,
+phy_init, data, phy,     0x11000,  0x1000,
+# nanoCLR slot A - 1664k
+ota_0,    app, ota_0,    0x20000,  0x1A0000,
+# nanoCLR slot B - 1664k
+ota_1,    app, ota_1,    0x1C0000, 0x1A0000,
+# Deployment area for Managed code (working copy) 2944k
+deploy,   data, 0x84,    0x360000, 0x2E0000,
+# Staging area for a new managed deployment image 2944k
+stage,    data, 0x85,    0x640000, 0x2E0000,
+# Backup of the previous managed deployment image (rollback) 2944k
+backup,   data, 0x86,    0x920000, 0x2E0000,
+# Config data for Network, Wireless, certificates, user data 4MB
+config,   data, littlefs, 0xC00000, 0x400000,
+##########################################
+# total size has to be 0x1000000 or less #
+##########################################

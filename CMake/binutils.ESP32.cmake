@@ -450,11 +450,23 @@ macro(nf_setup_partition_tables_generator)
             COMMENT "Generate partition table for 8MB flash" )
 
         add_custom_command( TARGET ${NANOCLR_PROJECT_NAME}.elf POST_BUILD
-            COMMAND ${gen_partition_table} 
-            --flash-size 16MB 
+            COMMAND ${gen_partition_table}
+            --flash-size 16MB
             ${CMAKE_SOURCE_DIR}/targets/ESP32/_IDF/${TARGET_SERIES_SHORT}/partitions_nanoclr_16mb.csv
             ${CMAKE_BINARY_DIR}/partitions_16mb.bin
             COMMENT "Generate partition table for 16MB flash" )
+
+        # OTA partition layout (NF_FEATURE_OTA): A/B nanoCLR slots + stage/backup
+        if(NF_FEATURE_OTA AND EXISTS ${CMAKE_SOURCE_DIR}/targets/ESP32/_IDF/${TARGET_SERIES_SHORT}/partitions_nanoclr_16mb_ota.csv)
+
+            add_custom_command( TARGET ${NANOCLR_PROJECT_NAME}.elf POST_BUILD
+                COMMAND ${gen_partition_table}
+                --flash-size 16MB
+                ${CMAKE_SOURCE_DIR}/targets/ESP32/_IDF/${TARGET_SERIES_SHORT}/partitions_nanoclr_16mb_ota.csv
+                ${CMAKE_BINARY_DIR}/partitions_16mb_ota.bin
+                COMMENT "Generate OTA partition table for 16MB flash" )
+
+        endif()
 
     endif()
 
@@ -645,6 +657,7 @@ macro(nf_add_idf_as_library)
         esp_psram
         esp_adc
         littlefs
+        app_update
     )
 
     # set list with the libraries for IDF components added
@@ -661,6 +674,7 @@ macro(nf_add_idf_as_library)
         idf::esp_psram
         idf::esp_adc
         idf::littlefs
+        idf::app_update
     )
 
     # Needed for remote Wifi module on P4 boards

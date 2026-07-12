@@ -11,7 +11,7 @@
       "type": "node-terminal",
       "request": "launch",
       "cwd": "${workspaceFolder}",
-      "command": "${userHome}\\.espressif\\python_env\\idf5.5_py3.11_env\\Scripts\\esptool.exe --chip esp32s3 --port ${input:comPort} --baud 921600 --before default_reset --after hard_reset write_flash --flash_mode dio --flash_size detect --flash_freq 80m 0x0 build/bootloader/bootloader.bin 0x8000 build/partition_table/partition-table.bin 0x10000 build/nanoCLR.bin; ${userHome}\\.espressif\\python_env\\idf5.5_py3.11_env\\Scripts\\python.exe -m esp_idf_monitor --port ${input:comPort} build/nanoCLR.elf"
+      "command": "${userHome}\\.espressif\\python_env\\idf5.5_py3.11_env\\Scripts\\esptool.exe --chip esp32s3 --port ${input:comPort} --baud 921600 --before default_reset --after hard_reset write_flash --flash_mode dio --flash_size detect --flash_freq 80m 0x0 build/bootloader/bootloader.bin 0x8000 build/partition_table/partition-table.bin 0xf000 build/ota_data_initial.bin 0x20000 build/nanoCLR.bin; ${userHome}\\.espressif\\python_env\\idf5.5_py3.11_env\\Scripts\\python.exe -m esp_idf_monitor --port ${input:comPort} build/nanoCLR.elf"
     },
     {
       // Flash the freshly built nanoCLR to the board over the built-in USB-JTAG
@@ -32,7 +32,8 @@
       "setupCommands": [
         { "description": "connect to OpenOCD", "text": "target extended-remote localhost:3333" },
         { "description": "halt core", "text": "monitor reset halt" },
-        { "description": "flash nanoCLR app", "text": "monitor program_esp \"${workspaceFolder}/build/nanoCLR.bin\" 0x10000 verify" },
+        { "description": "reset otadata (boot ota_0)", "text": "monitor program_esp \"${workspaceFolder}/build/ota_data_initial.bin\" 0xf000" },
+        { "description": "flash nanoCLR app", "text": "monitor program_esp \"${workspaceFolder}/build/nanoCLR.bin\" 0x20000 verify" },
         { "description": "reset & halt", "text": "monitor reset halt" },
         { "description": "refresh regs", "text": "flushregs" },
         { "description": "limit hw watchpoints", "text": "set remote hardware-watchpoint-limit 2" }

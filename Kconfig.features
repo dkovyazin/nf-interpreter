@@ -81,4 +81,16 @@ config NF_TRACE_TO_STDIO
     bool "Send trace data to stdio (requires spare SERIAL device)"
     default n
 
+config NF_FEATURE_OTA
+    bool "OTA update support (A/B nanoCLR slots + staged deployment update)"
+    default n
+    help
+      Enables over-the-air update support. Requires an OTA partition
+      layout (otadata + ota_0/ota_1 app slots + stage/backup data
+      partitions). Currently implemented for the ESP32 platform only:
+      the running nanoCLR is located via esp_ota_get_running_partition(),
+      a staged managed deployment image is applied to the deploy
+      partition by a boot-hook before the CLR starts, and the IDF
+      bootloader rollback mechanism guards new firmware images.
+
 endmenu

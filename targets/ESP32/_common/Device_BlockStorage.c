@@ -8,6 +8,7 @@
 
 #include <esp32_idf.h>
 #include <esp_partition.h>
+#include <esp_ota_ops.h>
 
 #include <Target_BlockStorage_Esp32FlashDriver.h>
 
@@ -138,8 +139,13 @@ BlockStorageDevice Device_BlockStorage;
 void FixUpBlockRegionInfo()
 {
     // nanoCLR
-    const esp_partition_t *part_nanoClr =
-        esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, 0);
+    // with an OTA layout the CLR runs from ota_0/ota_1, otherwise from factory;
+    // esp_ota_get_running_partition() resolves both cases
+    const esp_partition_t *part_nanoClr = esp_ota_get_running_partition();
+    if (!part_nanoClr)
+    {
+        part_nanoClr = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, 0);
+    }
     if (part_nanoClr)
     {
         BlockRegions[0].Start = part_nanoClr->address;
