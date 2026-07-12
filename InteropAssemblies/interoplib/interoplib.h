@@ -13,12 +13,43 @@
 #include <nanoCLR_Runtime.h>
 #include <nanoPackStruct.h>
 
+typedef enum __nfpack OtaState
+{
+    OtaState_Idle = 0,
+    OtaState_Staged = 1,
+    OtaState_Copying = 2,
+    OtaState_Applied = 3,
+    OtaState_Confirmed = 4,
+    OtaState_RolledBack = 5,
+} OtaState;
+
 struct Library_interoplib_interoplib_LedPixelController
 {
     NANOCLR_NATIVE_DECLARE(NativeInit___STATIC__VOID__I4__I4__I4__I4__I4__U1__U1__U1);
+    NANOCLR_NATIVE_DECLARE(NativeSetBrightness___STATIC__VOID__U1);
+    NANOCLR_NATIVE_DECLARE(NativePrepareForPlay___STATIC__VOID__U2__SZARRAY_U1);
+    NANOCLR_NATIVE_DECLARE(NativeStartPlay___STATIC__VOID__U2__U1__U2);
+    NANOCLR_NATIVE_DECLARE(NativeWriteToPlayBuffer___STATIC__VOID__U2__SZARRAY_U1);
     NANOCLR_NATIVE_DECLARE(NativeWrite___STATIC__VOID__SZARRAY_U1);
     NANOCLR_NATIVE_DECLARE(NativeSetFull___STATIC__VOID__U1__U1__U1);
     NANOCLR_NATIVE_DECLARE(NativeSetPixel___STATIC__VOID__U1__U2__U1__U1__U1);
+
+    //--//
+};
+
+struct Library_interoplib_interoplib_Ota
+{
+    NANOCLR_NATIVE_DECLARE(NativeFirmwareBegin___STATIC__BOOLEAN__I4);
+    NANOCLR_NATIVE_DECLARE(NativeFirmwareWrite___STATIC__BOOLEAN__SZARRAY_U1__I4);
+    NANOCLR_NATIVE_DECLARE(NativeFirmwareEnd___STATIC__BOOLEAN);
+    NANOCLR_NATIVE_DECLARE(NativeGetRunningSha256___STATIC__BOOLEAN__SZARRAY_U1);
+    NANOCLR_NATIVE_DECLARE(NativeStageBegin___STATIC__BOOLEAN__I4);
+    NANOCLR_NATIVE_DECLARE(NativeStageWrite___STATIC__BOOLEAN__SZARRAY_U1__I4);
+    NANOCLR_NATIVE_DECLARE(NativeStageCommit___STATIC__BOOLEAN__U4);
+    NANOCLR_NATIVE_DECLARE(NativeCommitFull___STATIC__BOOLEAN);
+    NANOCLR_NATIVE_DECLARE(NativeConfirm___STATIC__BOOLEAN);
+    NANOCLR_NATIVE_DECLARE(NativeGetState___STATIC__U1);
+    NANOCLR_NATIVE_DECLARE(NativeIsPendingConfirm___STATIC__BOOLEAN);
 
     //--//
 };
