@@ -840,6 +840,24 @@ macro(nf_add_idf_as_library)
         )
     endif()
 
+    # IDF applies SDKCONFIG_DEFAULTS only when the sdkconfig file does not exist
+    # yet: an existing sdkconfig silently keeps stale options (partition table,
+    # bootloader rollback, ...) after the defaults change. Track a hash of the
+    # effective defaults and remove the stale sdkconfig to force regeneration.
+    set(SDKCONFIG_FILE ${CMAKE_SOURCE_DIR}/sdkconfig)
+    file(SHA1 ${SDKCONFIG_DEFAULTS_TEMP_FILE} SDKCONFIG_DEFAULTS_HASH)
+    string(PREPEND SDKCONFIG_DEFAULTS_HASH "${SDKCONFIG_DEFAULTS_FILE}:")
+    set(SDKCONFIG_DEFAULTS_STAMP ${CMAKE_BINARY_DIR}/.nf_sdkconfig_defaults_used)
+    set(SDKCONFIG_DEFAULTS_LAST "")
+    if(EXISTS ${SDKCONFIG_DEFAULTS_STAMP})
+        file(READ ${SDKCONFIG_DEFAULTS_STAMP} SDKCONFIG_DEFAULTS_LAST)
+    endif()
+    if(EXISTS ${SDKCONFIG_FILE} AND NOT "${SDKCONFIG_DEFAULTS_LAST}" STREQUAL "${SDKCONFIG_DEFAULTS_HASH}")
+        message(STATUS "SDK CONFIG defaults changed: removing stale '${SDKCONFIG_FILE}' so IDF regenerates it")
+        file(REMOVE ${SDKCONFIG_FILE})
+    endif()
+    file(WRITE ${SDKCONFIG_DEFAULTS_STAMP} "${SDKCONFIG_DEFAULTS_HASH}")
+
     # create IDF static libraries
     idf_build_process(${TARGET_SERIES_SHORT}
         COMPONENTS 

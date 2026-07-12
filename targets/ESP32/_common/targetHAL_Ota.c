@@ -10,10 +10,20 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include <sdkconfig.h>
 #include <esp_partition.h>
 #include <esp_ota_ops.h>
 #include <esp_rom_crc.h>
 #include <nvs.h>
+
+// The FULL-update rollback path relies on the IDF bootloader marking a freshly
+// switched slot PENDING_VERIFY and rolling it back when the app never confirms.
+// Without this option esp_ota_set_boot_partition() records the slot as
+// UNDEFINED (see esp_ota_ops.c), there is no rollback window and a broken
+// nanoCLR image boot-loops with USB recovery as the only way out.
+#ifndef CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+#error "NF_FEATURE_OTA requires CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y in the IDF sdkconfig defaults"
+#endif
 
 // partition subtypes, mirroring partitions_nanoclr_*_ota.csv
 #define OTA_PARTITION_SUBTYPE_DEPLOY ((esp_partition_subtype_t)0x84)
