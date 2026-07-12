@@ -124,9 +124,18 @@ function(nf_load_kconfig)
 
     # Step 1: Merge the board defconfig (plus optional user overlay) into .config.
     # Re-run whenever the defconfig, user overlay, or any Kconfig schema file is
-    # newer than .config.
+    # newer than .config, or when a different defconfig is selected (preset switch —
+    # timestamps alone would miss it and leave a stale .config).
+    set(_defconfig_stamp "${CMAKE_BINARY_DIR}/.nf_defconfig_used")
+    set(_last_defconfig "")
+    if(EXISTS "${_defconfig_stamp}")
+        file(READ "${_defconfig_stamp}" _last_defconfig)
+    endif()
+
     set(_needs_regen FALSE)
     if(NOT EXISTS "${_dot_config}")
+        set(_needs_regen TRUE)
+    elseif(NOT "${_last_defconfig}" STREQUAL "${_defconfig_path}")
         set(_needs_regen TRUE)
     elseif("${_defconfig_path}" IS_NEWER_THAN "${_dot_config}")
         set(_needs_regen TRUE)
@@ -166,6 +175,8 @@ function(nf_load_kconfig)
         if(NOT _defconfig_result EQUAL 0)
             message(FATAL_ERROR "nf_merge_config failed:\n${_defconfig_error}")
         endif()
+
+        file(WRITE "${_defconfig_stamp}" "${_defconfig_path}")
     endif()
 
     # Step 2: Run nf_genconfig.py to produce nf_config.h.
