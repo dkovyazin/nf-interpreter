@@ -56,7 +56,7 @@
     {
         "label": "Erase ESP32 flash",
         "type": "shell",
-        "command": "python ${env:IDF_PATH}/components/esptool_py/esptool/esptool.py --chip auto --port \"${input:comPort}\" --baud 1500000 --before \"default_reset\" --after \"hard_reset\" erase_flash",
+        "command": "${userHome}\\.espressif\\python_env\\idf5.5_py3.11_env\\Scripts\\esptool.exe --chip auto --port \"${input:comPort}\" --baud 1500000 --before \"default_reset\" --after \"hard_reset\" erase_flash",
         "presentation": {
             "reveal": "always",
             "panel": "shared"
