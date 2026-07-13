@@ -90,8 +90,10 @@
 | Раздача `.ltfw` группе | `DownloadService` (отдаёт кэш с SD по `Bundle.Id`) |
 | Подтверждение после health-check | `Startup.Run` → `Bundle.ConfirmIfPending()` после старта сервисов |
 
-Версия bundle — `AssemblyVersion` сборки `LedTrees.Device` (сейчас 2.1.0.0);
-`Board.SoftwareVersion` читает её же, упаковщики берут её из DLL.
+Версий ровно две: версия Firmware (`BUILD_VERSION` nanoCLR, читается как
+`SystemInfo.Version`) и версия приложения/bundle — `AssemblyVersion` сборки
+`LedTrees.Device` (сейчас 3.0.0.0); `Bundle.Version` читает её же, упаковщики
+берут её из DLL.
 
 ### Проверено на железе
 
