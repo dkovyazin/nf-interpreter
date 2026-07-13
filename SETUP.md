@@ -26,6 +26,9 @@
 ### 1. Предпосылки
 - Git, PowerShell, [Visual C++ Build Tools], VS Code + расширения:
   `espressif.esp-idf-extension`, `ms-vscode.cmake-tools`, `ms-vscode.cpptools`.
+- Python 3.11+ в PATH — без него `install.ps1` из ESP-IDF не сможет поставить
+  тулчейны (алиас Microsoft Store не считается):
+  `winget install --id Python.Python.3.11 --scope user --silent`
 - Длинные пути: `New-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' LongPathsEnabled -Value 1 -PropertyType DWORD -Force` (админ, один раз).
 
 ### 2. Клонировать и запустить бутстрап
