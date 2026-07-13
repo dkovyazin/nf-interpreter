@@ -63,6 +63,10 @@ if (-not $SkipIdfInstall) {
     $env:IDF_TOOLS_PATH = $ToolsPath
     $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
     & (Join-Path $IdfPath 'install.ps1') esp32s3
+    # riscv gdb is not part of the esp32s3 tool set, but the ESP-IDF VS Code
+    # extension validates it as a required tool
+    $idfBasePy = Get-ChildItem (Join-Path $ToolsPath 'tools\idf-python') -Directory | Select-Object -First 1
+    & (Join-Path $idfBasePy.FullName 'python.exe') (Join-Path $IdfPath 'tools\idf_tools.py') install riscv32-esp-elf-gdb
     $ErrorActionPreference = $prev
     Ok "tools installed"
 }
