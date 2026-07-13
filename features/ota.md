@@ -101,7 +101,7 @@
 (со сменой A/B-слота) — оба до состояния `CONFIRMED`; wwwroot распакован на SD,
 админка работает (WebSocket :8080, `otaSlot: 4 = Confirmed` в init), DHCP-сервер AP
 выдаёт адреса клиентам. Managed-образ фактически 27 сборок / **322 KB** — запас
-в deploy-партиции (2944 KB) ~9×.
+в deploy-партиции (2624 KB) ~7×.
 
 ### Попутно найденные и исправленные баги
 
@@ -141,12 +141,12 @@ nvs,       data, nvs,      0x9000,   0x6000
 otadata,   data, ota,      0xf000,   0x2000     # активный слот (A/B), атомарный
 phy_init,  data, phy,      0x11000,  0x1000
 ota_state, data, 0x87,     0x12000,  0x2000     # состояние OTA-автомата (вне NVS)
-ota_0,     app,  ota_0,    0x20000,  0x1A0000   # nanoCLR слот A (1664 KB)
-ota_1,     app,  ota_1,    0x1C0000, 0x1A0000   # nanoCLR слот B (1664 KB)
-deploy,    data, 0x84,     0x360000, 0x2E0000   # managed-образ, рабочая копия (2944 KB)
-stage,     data, 0x85,     0x640000, 0x2E0000   # staging нового managed-образа
-backup,    data, 0x86,     0x920000, 0x2E0000   # копия старого managed-образа для отката
-config,    data, littlefs, 0xC00000, 0x400000   # littlefs 4 MB: конфигурация
+ota_0,     app,  ota_0,    0x20000,  0x210000   # nanoCLR слот A (2112 KB)
+ota_1,     app,  ota_1,    0x230000, 0x210000   # nanoCLR слот B (2112 KB)
+deploy,    data, 0x84,     0x440000, 0x290000   # managed-образ, рабочая копия (2624 KB)
+stage,     data, 0x85,     0x6D0000, 0x290000   # staging нового managed-образа
+backup,    data, 0x86,     0x960000, 0x290000   # копия старого managed-образа для отката
+config,    data, littlefs, 0xBF0000, 0x410000   # littlefs 4160 KB: конфигурация
 ```
 
 Замечания:
@@ -154,7 +154,7 @@ config,    data, littlefs, 0xC00000, 0x400000   # littlefs 4 MB: конфигу�
 - app-партиции выровнены по 0x10000 (требование IDF); nanoCLR без BLE занимает слот
   на ~79% (1.35 MB).
 - `stage`/`backup` — data-партиции с кастомными subtype, бутлоадер их не трогает.
-- managed-образ фактически 322 KB при 2944 KB партиции — при желании `deploy/stage/backup`
+- managed-образ фактически 322 KB при 2624 KB партиции — при желании `deploy/stage/backup`
   можно ужать (например до 1 MB) и отдать место littlefs; пока не трогаем.
 - **wwwroot и кэш `.ltfw` живут на SD-карте** (`{MmcPath}/ota/`), littlefs — только
   конфигурация. SD есть на всех устройствах (обязательна: `Board.Init` требует её).
@@ -392,7 +392,7 @@ Update-сервер ──HTTPS──▶ MAIN ──UDP: NeedUpdate──▶ SCR
 
 1. `esptool erase_flash`;
 2. `esptool write_flash 0x0 bootloader.bin 0x8000 partition-table.bin
-   0xf000 ota_data_initial.bin 0x20000 nanoCLR.bin 0x360000 <managed-образ>`
+   0xf000 ota_data_initial.bin 0x20000 nanoCLR.bin 0x440000 <managed-образ>`
    (всё из `build/`, managed-образ — конкатенация .pe; есть задача
    `nanoCLR: Flash (esptool)` в tasks.json — без deploy-региона);
 3. `nanoff --filedeployment <filedeploy.json>` доставляет wwwroot на SD
@@ -505,9 +505,9 @@ reflection-контракт `Startup.Run/Stop` как ещё одна ось с�
 
 ## 15. Открытые вопросы
 
-- Перекройка партиций: managed-образ занимает 322 KB из 2944 KB — можно ужать
+- Перекройка партиций: managed-образ занимает 342 KB из 2624 KB — можно ужать
   `deploy/stage/backup` и отдать место littlefs/SD-независимому хранилищу. Не срочно.
-- Нужен ли `backup` (2944 KB), или при откате достаточно перекачать старую версию с
+- Нужен ли `backup` (2624 KB), или при откате достаточно перекачать старую версию с
   сервера? Backup спасает офлайн-устройства — пока оставляем.
 - Канал push-уведомлений для «проверь обновления»: MQTT или только периодический опрос?
 - Health-check перед `Confirm()` сейчас = «сервисы запущены»; стоит ли ждать
