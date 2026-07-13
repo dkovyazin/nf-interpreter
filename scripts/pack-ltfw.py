@@ -3,9 +3,9 @@
 Pack a LEDTREES firmware bundle (.ltfw) — see features/ota.md §4.
 
 Layout:
-  LtFwHeader (little-endian, 160 bytes):
+  LtFwHeader (little-endian, 172 bytes):
     magic           4s   b"LTFW"
-    formatVersion   u32  1
+    formatVersion   u32  2
     version         32s  bundle version, NUL-padded utf-8
     clrOffset       u32  \
     clrSize         u32   } nanoCLR.bin (IDF app image)
@@ -16,6 +16,9 @@ Layout:
     webOffset       u32  \
     webSize         u32   } web section (may be empty: size 0)
     webSha256       32s  /
+    clrCrc32        u32  \
+    mngdCrc32       u32   } zlib CRC32 per section: the device verifies these
+    webCrc32        u32  /  before installing (no SHA256 primitive on-device)
   sections follow in that order.
 
 Web section format (matches the existing app-bundle file records):
@@ -36,10 +39,10 @@ import zlib
 from pathlib import Path
 
 MAGIC = b"LTFW"
-FORMAT_VERSION = 1
-HEADER_FMT = "<4sI32s" + "II32s" * 3
+FORMAT_VERSION = 2
+HEADER_FMT = "<4sI32s" + "II32s" * 3 + "III"
 HEADER_SIZE = struct.calcsize(HEADER_FMT)
-assert HEADER_SIZE == 160, HEADER_SIZE
+assert HEADER_SIZE == 172, HEADER_SIZE
 
 
 def build_web_section(wwwroot: Path) -> bytes:
@@ -98,6 +101,9 @@ def main() -> int:
         *sections[0],
         *sections[1],
         *sections[2],
+        zlib.crc32(clr) & 0xFFFFFFFF,
+        zlib.crc32(managed) & 0xFFFFFFFF,
+        zlib.crc32(web) & 0xFFFFFFFF,
     )
 
     bundle = header + clr + managed + web
