@@ -393,8 +393,20 @@ Update-сервер ──HTTPS──▶ MAIN ──UDP: NeedUpdate──▶ SCR
    0xf000 ota_data_initial.bin 0x20000 nanoCLR.bin 0x360000 <managed-образ>`
    (всё из `build/`, managed-образ — конкатенация .pe; есть задача
    `nanoCLR: Flash (esptool)` в tasks.json — без deploy-региона);
-3. первая загрузка: приложение поднимает AP, DHCP выдаёт адрес;
-4. `POST /upload-update` с `.ltfw` доустанавливает wwwroot (и далее все обновления — OTA).
+3. `nanoff --filedeployment <filedeploy.json>` доставляет wwwroot на SD
+   (`D:\ota\wwwroot-{ver}`) по тому же COM-порту через Wire Protocol storage
+   operations — сеть не нужна;
+4. первая загрузка: приложение поднимает AP, DHCP выдаёт адрес; все дальнейшие
+   обновления — OTA (`POST /upload-update` с `.ltfw`).
+
+Шаги 2–3 автоматизированы скриптом `ledtrees-esp32/scripts/build-and-flash.ps1`
+(таска `deploy: полный (nanoCLR + managed + wwwroot) → COM` в tasks.json).
+Требование прошивки для шага 3: RX/TX-буферы драйвера USB-Serial-JTAG не меньше
+WP-кадра (`USB_JTAG_BUFFER_SIZE 2048` в `WireProtocol_HAL_Interface.c`) — при
+256 байтах ISR молча выбрасывает байты, когда приёмный поток занят записью на SD,
+и деплой файлов больше ~4 КБ зависает; плюс запас стека `ReceiverThread` 6 КБ
+(путь FATFS+SDMMC не помещается в 3 КБ) и Append по `offset` в
+`targetHAL_StorageOperation.cpp`.
 
 Dev-итерации не меняются: деплой managed-кода из Visual Studio в deploy-регион по USB —
 штатный workflow nanoFramework. JTAG-прошивка nanoCLR — по 0x20000 (launch.json сбрасывает

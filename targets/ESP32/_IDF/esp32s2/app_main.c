@@ -62,7 +62,9 @@ void app_main()
     ESP_ERROR_CHECK(nvs_flash_init());
 
     // start receiver task
-    xTaskCreate(&receiver_task, "ReceiverThread", 3072, NULL, 5, &ReceiverTask);
+    // 6 kB stack: Monitor_StorageOperation runs FATFS+SDMMC writes on this task
+    // (nanoff --filedeployment); the FAT allocation/flush path overflows 3 kB
+    xTaskCreate(&receiver_task, "ReceiverThread", 6144, NULL, 5, &ReceiverTask);
 
     // start the CLR main task
     xTaskCreate(&main_task, "main_task", 15000, NULL, 5, NULL);

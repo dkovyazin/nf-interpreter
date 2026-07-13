@@ -65,8 +65,6 @@ uint32_t HAL_StorageOperation(
     uint32_t offset,
     uint8_t *data)
 {
-    (void)offset;
-
     size_t result;
     StorageOperationErrorCode errorCode = StorageOperationErrorCode::NoError;
 
@@ -133,34 +131,54 @@ uint32_t HAL_StorageOperation(
 
         if (errorCode != StorageOperationErrorCode::WriteError)
         {
-            // Open the file in read mode
+            // Create the file and write the first chunk
             FILE *file = fopen(storageNameChar, "w");
 
-            // append more data
-            result = fwrite((const void *)(data + nameLength), 1, (size_t)dataLength, file);
-            fclose(file);
-
-            // check if the data was written
-            if (result != (size_t)dataLength)
+            if (file == NULL)
             {
                 errorCode = StorageOperationErrorCode::WriteError;
+            }
+            else
+            {
+                result = fwrite((const void *)(data + nameLength), 1, (size_t)dataLength, file);
+                fclose(file);
+
+                // check if the data was written
+                if (result != (size_t)dataLength)
+                {
+                    errorCode = StorageOperationErrorCode::WriteError;
+                }
             }
         }
     }
     else if (operation == StorageOperation_Monitor::StorageOperation_Append)
     {
-        // Open the file in read mode
-        FILE *file = fopen(storageNameChar, "a");
-        fseek(file, 0, SEEK_END);
+        // "r+" instead of "a": write the chunk at the offset requested by the
+        // debugger client, so a retried/reordered chunk can't duplicate data
+        FILE *file = fopen(storageNameChar, "r+");
 
-        // append more data
-        result = fwrite((const void *)(data + nameLength), 1, (size_t)dataLength, file);
-        fclose(file);
-
-        // check if the data was written
-        if (result != (size_t)dataLength)
+        if (file == NULL)
         {
             errorCode = StorageOperationErrorCode::WriteError;
+        }
+        else
+        {
+            if (fseek(file, (long)offset, SEEK_SET) != 0)
+            {
+                errorCode = StorageOperationErrorCode::WriteError;
+            }
+            else
+            {
+                result = fwrite((const void *)(data + nameLength), 1, (size_t)dataLength, file);
+
+                // check if the data was written
+                if (result != (size_t)dataLength)
+                {
+                    errorCode = StorageOperationErrorCode::WriteError;
+                }
+            }
+
+            fclose(file);
         }
     }
     else if (operation == StorageOperation_Monitor::StorageOperation_Delete)

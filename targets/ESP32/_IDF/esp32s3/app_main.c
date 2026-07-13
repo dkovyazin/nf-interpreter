@@ -87,7 +87,9 @@ void app_main()
 #endif
 
     // start receiver task
-    xTaskCreatePinnedToCore(&receiver_task, "ReceiverThread", 3072, NULL, 5, &ReceiverTask, 0);
+    // 6 kB stack: Monitor_StorageOperation runs FATFS+SDMMC writes on this task
+    // (nanoff --filedeployment); the FAT allocation/flush path overflows 3 kB
+    xTaskCreatePinnedToCore(&receiver_task, "ReceiverThread", 6144, NULL, 5, &ReceiverTask, 0);
 
     // start the CLR main task
     xTaskCreatePinnedToCore(&main_task, "main_task", 15000, NULL, 5, NULL, 0);
