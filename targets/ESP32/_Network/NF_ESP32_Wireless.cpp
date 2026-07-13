@@ -20,8 +20,79 @@ static bool IsWifiInitialised = false;
 static esp_netif_t *wifiStaNetif = NULL;
 static esp_netif_t *wifiAPNetif = NULL;
 
+// registration handle for the AP_START -> DHCP server restart handler
+static esp_event_handler_instance_t apStartDhcpsHandler = NULL;
+
 // flag to signal if connect is to happen
 bool NF_ESP32_IsToConnect = false;
+
+// (re)start the DHCP server on the AP netif and make it the default netif.
+// The AP netif is created without the DHCP-server flag (see NF_ESP32_InitaliseWifi),
+// so esp_netif never starts dhcps on its own.
+static void NF_ESP32_ApDhcpServerStart()
+{
+    if (wifiAPNetif == NULL)
+    {
+        return;
+    }
+
+    // ignore stop result: may legitimately be in INIT/STOPPED state
+    esp_err_t ecStop = esp_netif_dhcps_stop(wifiAPNetif);
+
+    // don't advertise a default gateway or DNS server in the DHCP
+    // offers: the SoftAP has no upstream internet, and an advertised
+    // router makes clients route all traffic into the AP, killing
+    // their internet access (phones drop off cellular, laptops with a
+    // second NIC prefer the bogus default route)
+    uint8_t dhcpsOfferOff = 0;
+    esp_netif_dhcps_option(
+        wifiAPNetif,
+        ESP_NETIF_OP_SET,
+        ESP_NETIF_ROUTER_SOLICITATION_ADDRESS,
+        &dhcpsOfferOff,
+        sizeof(dhcpsOfferOff));
+    esp_netif_dhcps_option(
+        wifiAPNetif,
+        ESP_NETIF_OP_SET,
+        ESP_NETIF_DOMAIN_NAME_SERVER,
+        &dhcpsOfferOff,
+        sizeof(dhcpsOfferOff));
+
+    esp_err_t ec = esp_netif_dhcps_start(wifiAPNetif);
+
+#if !CONFIG_NF_BUILD_RTM
+    esp_rom_printf(
+        "[NET-DIAG] AP netif up=%d dhcps stop=0x%x start=0x%x\r\n",
+        (int)esp_netif_is_netif_up(wifiAPNetif),
+        (unsigned)ecStop,
+        (unsigned)ec);
+#else
+    (void)ecStop;
+#endif
+
+    if (ec != ESP_OK && ec != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STARTED)
+    {
+        ESP_LOGE(TAG, "Unable to start AP DHCP server - result %d", ec);
+        // not fatal for the rest of the network stack
+    }
+
+    esp_netif_set_default_netif(wifiAPNetif);
+}
+
+// WIFI_EVENT_AP_START handler: every AP (re)start must bring the DHCP server
+// back up — esp_wifi_set_config bounces the AP (AP_STOP stops dhcps and,
+// without the DHCP-server netif flag, nothing restarts it). This handler is
+// registered AFTER esp_netif_create_default_wifi_ap so it runs after the
+// default esp_netif handler has brought the netif up.
+static void NF_ESP32_OnApStart(void *arg, esp_event_base_t eventBase, int32_t eventId, void *eventData)
+{
+    (void)arg;
+    (void)eventBase;
+    (void)eventId;
+    (void)eventData;
+
+    NF_ESP32_ApDhcpServerStart();
+}
 
 //
 //  Check what is the required Wi-Fi mode
@@ -120,6 +191,12 @@ void NF_ESP32_DeinitWifi()
 
     esp_wifi_stop();
 
+    if (apStartDhcpsHandler != NULL)
+    {
+        esp_event_handler_instance_unregister(WIFI_EVENT, WIFI_EVENT_AP_START, apStartDhcpsHandler);
+        apStartDhcpsHandler = NULL;
+    }
+
     esp_netif_destroy_default_wifi(wifiStaNetif);
     wifiStaNetif = NULL;
     esp_netif_destroy_default_wifi(wifiAPNetif);
@@ -182,6 +259,16 @@ esp_err_t NF_ESP32_InitaliseWifi()
             if (wifiAPNetif)
             {
                 wifiAPNetif->flags = (esp_netif_flags_t)(ESP_NETIF_FLAG_AUTOUP);
+
+                // registered here (after esp_netif_create_default_wifi_ap and before
+                // esp_wifi_start) so it runs after the default esp_netif AP handler
+                // and no AP_START event is missed
+                esp_event_handler_instance_register(
+                    WIFI_EVENT,
+                    WIFI_EVENT_AP_START,
+                    &NF_ESP32_OnApStart,
+                    NULL,
+                    &apStartDhcpsHandler);
             }
         }
 
@@ -254,8 +341,9 @@ esp_err_t NF_ESP32_InitaliseWifi()
             // LEDTREES: start the DHCP server on the AP interface (LWIP_DHCPS is
             // enabled in the lt sdkconfig); the AUTOUP-only netif flags above keep
             // esp_netif from doing it automatically (ported from the release branch).
-            // Must run AFTER the AP configuration: esp_wifi_set_config bounces the
-            // AP (AP_STOP/AP_START), which would kill an already-running server.
+            // The AP_START handler restarts dhcps on every AP (re)start, including
+            // the bounce esp_wifi_set_config causes; this direct call is a belt-and-
+            // braces fallback for the steady state (idempotent: ALREADY_STARTED ok).
             // dhcps only really starts when the netif is up, and AP events are
             // processed asynchronously - wait for the netif to come up first.
             {
@@ -266,49 +354,7 @@ esp_err_t NF_ESP32_InitaliseWifi()
                 }
             }
 
-            // ignore stop result: may legitimately be in INIT/STOPPED state
-            esp_err_t ecStop = esp_netif_dhcps_stop(wifiAPNetif);
-
-            // don't advertise a default gateway or DNS server in the DHCP
-            // offers: the SoftAP has no upstream internet, and an advertised
-            // router makes clients route all traffic into the AP, killing
-            // their internet access (phones drop off cellular, laptops with a
-            // second NIC prefer the bogus default route)
-            uint8_t dhcpsOfferOff = 0;
-            esp_netif_dhcps_option(
-                wifiAPNetif,
-                ESP_NETIF_OP_SET,
-                ESP_NETIF_ROUTER_SOLICITATION_ADDRESS,
-                &dhcpsOfferOff,
-                sizeof(dhcpsOfferOff));
-            esp_netif_dhcps_option(
-                wifiAPNetif,
-                ESP_NETIF_OP_SET,
-                ESP_NETIF_DOMAIN_NAME_SERVER,
-                &dhcpsOfferOff,
-                sizeof(dhcpsOfferOff));
-
-            ec = esp_netif_dhcps_start(wifiAPNetif);
-#if !CONFIG_NF_BUILD_RTM
-            esp_rom_printf(
-                "[NET-DIAG] AP netif up=%d dhcps stop=0x%x start=0x%x\r\n",
-                (int)esp_netif_is_netif_up(wifiAPNetif),
-                (unsigned)ecStop,
-                (unsigned)ec);
-#else
-            (void)ecStop;
-#endif
-            if (ec != ESP_OK && ec != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STARTED)
-            {
-                ESP_LOGE(TAG, "Unable to start AP DHCP server - result %d", ec);
-                // not fatal for the rest of the network stack
-            }
-
-            ec = esp_netif_set_default_netif(wifiAPNetif);
-            if (ec != ESP_OK)
-            {
-                return ec;
-            }
+            NF_ESP32_ApDhcpServerStart();
         }
 
         IsWifiInitialised = true;
