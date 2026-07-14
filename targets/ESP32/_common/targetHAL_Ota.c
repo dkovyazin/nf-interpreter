@@ -152,6 +152,14 @@ static const esp_partition_t *otaUpdatePartition;
 // validated in THIS session (statics survive failed sessions and CLR restarts)
 static bool otaFirmwareReady;
 
+// otaFirmwareReady latched into the current stage session by StageBegin. The raw
+// flag survives across install attempts in one uptime, so a FULL install that
+// wrote firmware but was abandoned before CommitFull would otherwise leak its
+// "true" into a following LIGHT install and mis-bind its stage to a firmware slot
+// (silently stranded update). This per-session copy is consumed by each StageBegin
+// so a second StageBegin with no fresh FirmwareBegin/End correctly reads LIGHT.
+static bool stageBoundToFirmware;
+
 // in-flight stage write
 static const esp_partition_t *stagePartition;
 static uint32_t stageWriteOffset;
@@ -346,6 +354,13 @@ bool NF_Ota_StageBegin(uint32_t totalSize)
         return false;
     }
 
+    // consume the firmware latch into this stage session: a FULL install writes
+    // firmware (FirmwareEnd -> otaFirmwareReady) right before staging, so only the
+    // StageBegin that immediately follows it binds the stage to the new slot. A
+    // later LIGHT StageBegin (no fresh FirmwareEnd) reads false and stays unbound.
+    stageBoundToFirmware = otaFirmwareReady;
+    otaFirmwareReady = false;
+
     return true;
 }
 
@@ -388,7 +403,7 @@ bool NF_Ota_StageCommit(uint32_t crc32)
     StateLoad();
     currentState.stageLength = stageWriteOffset;
     currentState.stageCrc = crc32;
-    currentState.target = otaFirmwareReady ? (uint8_t)otaUpdatePartition->subtype : OTA_TARGET_NONE;
+    currentState.target = stageBoundToFirmware ? (uint8_t)otaUpdatePartition->subtype : OTA_TARGET_NONE;
     currentState.attempts = 0;
     currentState.state = OTA_STATE_STAGED;
     if (!StateStore())
@@ -408,11 +423,13 @@ bool NF_Ota_StageCommit(uint32_t crc32)
 
 bool NF_Ota_CommitFull(void)
 {
-    // otaFirmwareReady guards against committing a slot whose image was not
-    // fully written and validated in this session (aborted write, stale
-    // pointer from an earlier attempt); repeating CommitFull after a
-    // successful one stays allowed - it is idempotent
-    if (!otaUpdatePartition || !otaFirmwareReady)
+    // stageBoundToFirmware guards against committing a slot whose image was not
+    // fully written and validated in THIS install (aborted write, or a stale
+    // firmware latch from an abandoned earlier attempt): it is true only when the
+    // current stage session was opened right after a successful FirmwareEnd.
+    // Repeating CommitFull after a successful one stays allowed - it is idempotent
+    // (StageCommit does not consume the flag).
+    if (!otaUpdatePartition || !stageBoundToFirmware)
     {
         return false;
     }
