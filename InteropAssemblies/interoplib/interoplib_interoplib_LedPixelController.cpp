@@ -254,9 +254,15 @@ void LedPixelController::NativeWrite( CLR_RT_TypedArray_UINT8 data, HRESULT &hr 
 
     xSemaphoreTake(bodySemaphore, portMAX_DELAY);
 
-    memcpy(FRAME_BUFFER, (void*)data.GetBuffer(), FRAME_SIZE);
+    // send exactly the managed array length (capped at frame size):
+    // copying FRAME_SIZE unconditionally read past the end of shorter arrays
+    int length = (int)data.GetSize();
+    if (length > FRAME_SIZE)
+        length = FRAME_SIZE;
 
-    spi_send_data(FRAME_BUFFER, FRAME_SIZE);
+    memcpy(FRAME_BUFFER, (void*)data.GetBuffer(), length);
+
+    spi_send_data(FRAME_BUFFER, length);
 
     xSemaphoreGive(bodySemaphore);
 
