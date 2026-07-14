@@ -382,6 +382,19 @@ esp_err_t NF_ESP32_InitaliseWifi()
             return ec;
         }
 
+        // LEDTREES: disable Wi-Fi power save. The IDF default is WIFI_PS_MIN_MODEM,
+        // which lets the STA modem sleep between DTIM beacons and throttles TCP
+        // throughput. Programs and OTA bundles are served over TCP through a single
+        // SoftAP radio where aggregate bandwidth and minimal airtime idle matter most
+        // (program distribution / DownloadService). WIFI_PS_NONE keeps the radio always on.
+        // The setting is global for the STA path and harmless in AP/APSTA mode.
+        // Non-fatal: on failure fall through with the default power-save mode.
+        esp_err_t ecPs = esp_wifi_set_ps(WIFI_PS_NONE);
+        if (ecPs != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Unable to disable Wi-Fi power save - result %d", ecPs);
+        }
+
         // if need, config the AP
         // this can only be performed after Wi-Fi is started
         if (expectedWifiMode & WIFI_MODE_AP)
