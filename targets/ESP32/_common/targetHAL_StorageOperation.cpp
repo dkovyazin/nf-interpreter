@@ -159,6 +159,14 @@ uint32_t HAL_StorageOperation(
 
         if (file == NULL)
         {
+            // file does not exist yet (Append reached the firmware before a Write,
+            // e.g. a lost Write reply): create it. "w+" gives the same seek+write
+            // positioning as "r+"; there is nothing to truncate on a fresh file
+            file = fopen(storageNameChar, "w+");
+        }
+
+        if (file == NULL)
+        {
             errorCode = StorageOperationErrorCode::WriteError;
         }
         else
