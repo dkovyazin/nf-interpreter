@@ -104,6 +104,15 @@ CONFIG_LWIP_IPV6=n
 CONFIG_LWIP_MAX_LISTENING_TCP=8
 CONFIG_LWIP_SNTP_MAX_SERVERS=2
 
+# LEDTREES: пропускная способность TCP для раздачи программ/OTA (порт 44000).
+# Дефолтное окно/буфер отправки 5760 (4xMSS) ограничивали TCP ~окно/RTT
+# (~0.6-1 МБ/с) независимо от качества канала; 11520 (8xMSS) ~ удваивает
+# потолок ценой ~+12 КБ RAM на сокет. IRAM-оптимизация lwIP даёт ещё +10-20%
+# ценой IRAM (Wi-Fi IRAM-опты уже включены дефолтом IDF).
+CONFIG_LWIP_TCP_WND_DEFAULT=11520
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=11520
+CONFIG_LWIP_IRAM_OPTIMIZATION=y
+
 CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC=y
 CONFIG_MBEDTLS_SSL_VARIABLE_BUFFER_LENGTH=y
 CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=y
