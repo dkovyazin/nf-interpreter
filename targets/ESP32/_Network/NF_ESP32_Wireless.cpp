@@ -183,6 +183,40 @@ wifi_mode_t NF_ESP32_GetCurrentWifiMode()
     return current_wifi_mode;
 }
 
+// OTA confirm network gate (targetHAL_Ota.c, C linkage; overrides its weak
+// fallback). When the STORED configuration expects a SoftAP, the AP must be
+// actually serving before an update may be confirmed: driver reached AP mode,
+// netif is up, DHCP server started. Judging by the stored expectation (not the
+// driver state) keeps the gate fail-closed when Wi-Fi init died before ever
+// reaching AP mode - a device confirmed in that state would be unreachable for
+// any future update. Lives here so the AP netif and dhcps knowledge stay in
+// the network module.
+extern "C" bool NF_ESP32_IsApServingIfExpected()
+{
+    wifi_mode_t expectedMode = NF_ESP32_CheckExpectedWifiMode();
+    if (expectedMode != WIFI_MODE_AP && expectedMode != WIFI_MODE_APSTA)
+    {
+        // no AP expected by configuration: nothing to verify here
+        return true;
+    }
+
+    wifi_mode_t mode;
+    if (esp_wifi_get_mode(&mode) != ESP_OK || (mode != WIFI_MODE_AP && mode != WIFI_MODE_APSTA))
+    {
+        // AP expected but the driver never reached AP mode
+        return false;
+    }
+
+    if (wifiAPNetif == NULL || !esp_netif_is_netif_up(wifiAPNetif))
+    {
+        return false;
+    }
+
+    esp_netif_dhcp_status_t dhcpsStatus;
+    return esp_netif_dhcps_get_status(wifiAPNetif, &dhcpsStatus) == ESP_OK &&
+           dhcpsStatus == ESP_NETIF_DHCP_STARTED;
+}
+
 void NF_ESP32_DeinitWifi()
 {
     // clear flags

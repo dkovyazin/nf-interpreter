@@ -15,8 +15,6 @@
 #include <esp_partition.h>
 #include <esp_ota_ops.h>
 #include <esp_rom_crc.h>
-#include <esp_wifi.h>
-#include <esp_netif.h>
 
 // The FULL-update rollback path relies on the IDF bootloader marking a freshly
 // switched slot PENDING_VERIFY and rolling it back when the app never confirms.
@@ -437,35 +435,19 @@ bool NF_Ota_CommitFull(void)
     return esp_ota_set_boot_partition(otaUpdatePartition) == ESP_OK;
 }
 
-// A confirmed bundle must be able to receive the NEXT update. The one failure
-// the managed health-check cannot observe is the SoftAP DHCP server silently
-// missing (see NF_ESP32_ApDhcpServerStart): the AP beacons and the app runs,
-// but clients never get a lease, so the web admin - and with it every remote
-// update path - is unreachable. Confirming such an image would strand the
-// device on it for good.
-static bool ConfirmNetworkGate(void)
+// A confirmed bundle must be able to receive the NEXT update. Failures the
+// managed health-check cannot observe: the SoftAP DHCP server silently missing
+// (see NF_ESP32_ApDhcpServerStart) or the Wi-Fi driver never reaching AP mode
+// at all - the AP netif keeps its static address either way, so managed code
+// binds its listeners and sees a "working" network while no client can ever
+// connect. Confirming such an image would strand the device on it for good.
+// The check itself lives in the network module (NF_ESP32_Wireless.cpp), which
+// owns the AP netif and the dhcps lifecycle; this weak fallback keeps builds
+// without the Wi-Fi network module linking.
+__attribute__((weak)) bool NF_ESP32_IsApServingIfExpected(void)
 {
-    wifi_mode_t mode;
-    if (esp_wifi_get_mode(&mode) != ESP_OK)
-    {
-        // Wi-Fi driver not started: nothing AP-specific to verify here, the
-        // managed health-check owns the general network-readiness signal
-        return true;
-    }
-
-    if (mode != WIFI_MODE_AP && mode != WIFI_MODE_APSTA)
-    {
-        return true;
-    }
-
-    esp_netif_t *apNetif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
-    if (!apNetif || !esp_netif_is_netif_up(apNetif))
-    {
-        return false;
-    }
-
-    esp_netif_dhcp_status_t dhcpsStatus;
-    return esp_netif_dhcps_get_status(apNetif, &dhcpsStatus) == ESP_OK && dhcpsStatus == ESP_NETIF_DHCP_STARTED;
+    // no network module in this build: nothing to verify
+    return true;
 }
 
 bool NF_Ota_Confirm(void)
@@ -479,7 +461,7 @@ bool NF_Ota_Confirm(void)
         // IDLE + pending-verify branch below must not depend on network state
         // to keep booting. Refusal here is retried by the managed
         // health-monitor until its deadline, then rolled back.
-        if (!ConfirmNetworkGate())
+        if (!NF_ESP32_IsApServingIfExpected())
         {
             return false;
         }
