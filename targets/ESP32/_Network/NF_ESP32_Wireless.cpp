@@ -7,6 +7,8 @@
 
 #include "NF_ESP32_Network.h"
 #include "esp_netif_net_stack.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 #if defined(CONFIG_SOC_WIFI_SUPPORTED) || defined(CONFIG_SOC_WIRELESS_HOST_SUPPORTED)
 
@@ -23,6 +25,13 @@ static esp_netif_t *wifiAPNetif = NULL;
 // registration handle for the AP_START -> DHCP server restart handler
 static esp_event_handler_instance_t apStartDhcpsHandler = NULL;
 
+// serialises NF_ESP32_ApDhcpServerStart: it is called both from the init task
+// (the direct belt-and-braces call after AP configuration) and from the AP_START
+// event handler on the system event-loop task. Without this, the two can interleave
+// stop/start on the same dhcps instance. Created once in NF_ESP32_InitaliseWifi
+// before the handler is registered and before esp_wifi_start emits AP_START.
+static SemaphoreHandle_t apDhcpsMutex = NULL;
+
 // flag to signal if connect is to happen
 bool NF_ESP32_IsToConnect = false;
 
@@ -34,6 +43,12 @@ static void NF_ESP32_ApDhcpServerStart()
     if (wifiAPNetif == NULL)
     {
         return;
+    }
+
+    // serialise against the other caller (init task vs AP_START event-loop task)
+    if (apDhcpsMutex != NULL)
+    {
+        xSemaphoreTake(apDhcpsMutex, portMAX_DELAY);
     }
 
     // ignore stop result: may legitimately be in INIT/STOPPED state
@@ -77,6 +92,11 @@ static void NF_ESP32_ApDhcpServerStart()
     }
 
     esp_netif_set_default_netif(wifiAPNetif);
+
+    if (apDhcpsMutex != NULL)
+    {
+        xSemaphoreGive(apDhcpsMutex);
+    }
 }
 
 // WIFI_EVENT_AP_START handler: every AP (re)start must bring the DHCP server
@@ -294,15 +314,29 @@ esp_err_t NF_ESP32_InitaliseWifi()
             {
                 wifiAPNetif->flags = (esp_netif_flags_t)(ESP_NETIF_FLAG_AUTOUP);
 
+                // create the dhcps serialisation mutex before the handler can fire
+                if (apDhcpsMutex == NULL)
+                {
+                    apDhcpsMutex = xSemaphoreCreateMutex();
+                }
+
                 // registered here (after esp_netif_create_default_wifi_ap and before
                 // esp_wifi_start) so it runs after the default esp_netif AP handler
-                // and no AP_START event is missed
-                esp_event_handler_instance_register(
-                    WIFI_EVENT,
-                    WIFI_EVENT_AP_START,
-                    &NF_ESP32_OnApStart,
-                    NULL,
-                    &apStartDhcpsHandler);
+                // and no AP_START event is missed.
+                // guard: an earlier init that failed after this point (any of the
+                // returns below) leaves IsWifiInitialised false without unregistering,
+                // so a retried Open re-enters here; without this guard it would
+                // register a second instance (leaking the first, firing the handler
+                // twice). DeinitWifi nulls the handle, so a clean re-init still registers.
+                if (apStartDhcpsHandler == NULL)
+                {
+                    esp_event_handler_instance_register(
+                        WIFI_EVENT,
+                        WIFI_EVENT_AP_START,
+                        &NF_ESP32_OnApStart,
+                        NULL,
+                        &apStartDhcpsHandler);
+                }
             }
         }
 
