@@ -12,6 +12,7 @@
 
 static const CLR_RT_MethodHandler method_lookup[] =
 {
+    Library_interoplib_interoplib_FrameDecoder::NativeDecodeFrame___STATIC__I4__SZARRAY_U1__I4__I4__SZARRAY_U1__SZARRAY_U1__U2,
     NULL,
     NULL,
     NULL,
@@ -53,13 +54,15 @@ static const CLR_RT_MethodHandler method_lookup[] =
     Library_interoplib_interoplib_Ota::NativeIsPendingConfirm___STATIC__BOOLEAN,
     NULL,
     NULL,
+    NULL,
     Library_interoplib_interoplib_Utilities::NativeGetBaseMac___STATIC__VOID__SZARRAY_U1,
+    Library_interoplib_interoplib_Utilities::NativeCrc32___STATIC__U4__U4__SZARRAY_U1__I4__I4,
 };
 
 const CLR_RT_NativeAssemblyData g_CLR_AssemblyNative_interoplib =
 {
     "interoplib",
-    0x52D58C6F,
+    0xC2BED921,
     method_lookup,
     { 2, 0, 0, 0 }
 };

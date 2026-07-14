@@ -10,24 +10,22 @@
 //
 //-----------------------------------------------------------------------------
 
-#ifndef INTEROPLIB_INTEROPLIB_INTEROPLIB_UTILITIES_H
-#define INTEROPLIB_INTEROPLIB_INTEROPLIB_UTILITIES_H
+#ifndef INTEROPLIB_INTEROPLIB_INTEROPLIB_FRAMEDECODER_H
+#define INTEROPLIB_INTEROPLIB_INTEROPLIB_FRAMEDECODER_H
 
 namespace interoplib
 {
     namespace interoplib
     {
-        struct Utilities
+        struct FrameDecoder
         {
             // Helper Functions to access fields of managed object
             // Declaration of stubs. These functions are implemented by Interop code developers
 
-            static void NativeGetBaseMac( CLR_RT_TypedArray_UINT8 param0, HRESULT &hr );
-
-            static unsigned int NativeCrc32( unsigned int param0, CLR_RT_TypedArray_UINT8 param1, signed int param2, signed int param3, HRESULT &hr );
+            static signed int NativeDecodeFrame( CLR_RT_TypedArray_UINT8 param0, signed int param1, signed int param2, CLR_RT_TypedArray_UINT8 param3, CLR_RT_TypedArray_UINT8 param4, uint16_t param5, HRESULT &hr );
 
         };
     }
 }
 
-#endif // INTEROPLIB_INTEROPLIB_INTEROPLIB_UTILITIES_H
+#endif // INTEROPLIB_INTEROPLIB_INTEROPLIB_FRAMEDECODER_H

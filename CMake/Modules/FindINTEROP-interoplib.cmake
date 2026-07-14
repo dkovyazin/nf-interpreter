@@ -27,6 +27,8 @@ set(interoplib_SRCS
     interoplib.cpp
 
 
+    interoplib_interoplib_FrameDecoder_mshl.cpp
+    interoplib_interoplib_FrameDecoder.cpp
     interoplib_interoplib_LedPixelController_mshl.cpp
     interoplib_interoplib_LedPixelController.cpp
     interoplib_interoplib_Ota_mshl.cpp

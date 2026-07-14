@@ -1,0 +1,115 @@
+//-----------------------------------------------------------------------------
+//
+// LEDTREES: нативный декод одного кадра FrameCodec (delta-RLE).
+// Формат байт-в-байт зеркалит managed FrameCodec.cs (LedTrees.Device.App) и
+// TS-энкодер (npm ledtrees-video-converter, source/frame-codec.ts):
+//   [mode:1] [RLE-сегменты, декодирующиеся ровно в frameSize байт]
+//   mode 0 — сами байты кадра; mode 1 — XOR-дельта к prev.
+//   Сегмент: [H:1] isRun = H & 0x80; n = H & 0x7F; n==0x7F -> n = 0x7F + varint;
+//   length = n + 1; RUN -> +1 байт значения; LITERAL -> +length сырых байт.
+//
+// Интерпретируемые циклы XOR (frameSize итераций на кадр) и RLE на nanoCLR
+// занимают ~сотни мс на кадр — здесь микросекунды. Работает только с
+// RAM-буферами: managed-обвязка ведёт скользящий буфер, поэтому источником
+// может быть и SD-файл, и сетевой поток.
+//
+// Возврат: >0 — потреблено байт src; -1 — битый формат; -2 — данных не хватило
+// (managed дозаполняет буфер и повторяет вызов).
+//
+//-----------------------------------------------------------------------------
+
+#include "interoplib.h"
+#include "interoplib_interoplib_FrameDecoder.h"
+
+using namespace interoplib::interoplib;
+
+#define DECODE_ERR_FORMAT -1
+#define DECODE_ERR_NEED_DATA -2
+
+signed int FrameDecoder::NativeDecodeFrame( CLR_RT_TypedArray_UINT8 param0, signed int param1, signed int param2, CLR_RT_TypedArray_UINT8 param3, CLR_RT_TypedArray_UINT8 param4, uint16_t param5, HRESULT &hr )
+{
+    const uint8_t *srcBase = (const uint8_t *)param0.GetBuffer();
+    signed int offset = param1;
+    signed int count = param2;
+    uint8_t *prev = (uint8_t *)param3.GetBuffer();
+    uint8_t *frame = (uint8_t *)param4.GetBuffer();
+    signed int frameSize = param5;
+
+    // валидация границ managed-массивов: не читаем/не пишем мимо
+    if (srcBase == NULL || prev == NULL || frame == NULL ||
+        offset < 0 || count < 0 || (uint32_t)(offset + count) > param0.GetSize() ||
+        frameSize <= 0 || (uint32_t)frameSize > param3.GetSize() || (uint32_t)frameSize > param4.GetSize())
+    {
+        hr = CLR_E_INVALID_PARAMETER;
+        return DECODE_ERR_FORMAT;
+    }
+
+    const uint8_t *src = srcBase + offset;
+    signed int pos = 0;
+
+    // mode-байт кадра
+    if (pos >= count)
+        return DECODE_ERR_NEED_DATA;
+    uint8_t mode = src[pos++];
+    if (mode > 1)
+        return DECODE_ERR_FORMAT;
+
+    signed int out = 0;
+    while (out < frameSize)
+    {
+        if (pos >= count)
+            return DECODE_ERR_NEED_DATA;
+        uint8_t h = src[pos++];
+
+        bool isRun = (h & 0x80) != 0;
+        signed int n = h & 0x7F;
+        if (n == 0x7F)
+        {
+            // varint-удлинение прогона
+            signed int v = 0;
+            signed int shift = 0;
+            while (true)
+            {
+                if (pos >= count)
+                    return DECODE_ERR_NEED_DATA;
+                uint8_t b = src[pos++];
+                v |= (signed int)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0)
+                    break;
+                shift += 7;
+                if (shift > 28)
+                    return DECODE_ERR_FORMAT; // varint длиннее разумного — мусор
+            }
+            n = 0x7F + v;
+        }
+        signed int len = n + 1;
+
+        if (len <= 0 || out + len > frameSize)
+            return DECODE_ERR_FORMAT; // сегмент вылезает за кадр
+
+        if (isRun)
+        {
+            if (pos >= count)
+                return DECODE_ERR_NEED_DATA;
+            memset(frame + out, src[pos++], len);
+        }
+        else
+        {
+            if (pos + len > count)
+                return DECODE_ERR_NEED_DATA;
+            memcpy(frame + out, src + pos, len);
+            pos += len;
+        }
+
+        out += len;
+    }
+
+    if (mode == 1)
+    {
+        // XOR-дельта: восстановить кадр из предыдущего
+        for (signed int i = 0; i < frameSize; i++)
+            frame[i] ^= prev[i];
+    }
+
+    return pos;
+}

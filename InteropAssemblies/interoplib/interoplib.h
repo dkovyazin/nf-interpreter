@@ -23,6 +23,13 @@ typedef enum __nfpack OtaState
     OtaState_RolledBack = 5,
 } OtaState;
 
+struct Library_interoplib_interoplib_FrameDecoder
+{
+    NANOCLR_NATIVE_DECLARE(NativeDecodeFrame___STATIC__I4__SZARRAY_U1__I4__I4__SZARRAY_U1__SZARRAY_U1__U2);
+
+    //--//
+};
+
 struct Library_interoplib_interoplib_LedPixelController
 {
     NANOCLR_NATIVE_DECLARE(NativeInit___STATIC__VOID__I4__I4__I4__I4__I4__U1__U1__U1);
@@ -59,6 +66,7 @@ struct Library_interoplib_interoplib_Utilities
     static const int FIELD_STATIC___baseMac = 0;
 
     NANOCLR_NATIVE_DECLARE(NativeGetBaseMac___STATIC__VOID__SZARRAY_U1);
+    NANOCLR_NATIVE_DECLARE(NativeCrc32___STATIC__U4__U4__SZARRAY_U1__I4__I4);
 
     //--//
 };
