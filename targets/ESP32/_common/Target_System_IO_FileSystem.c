@@ -246,7 +246,8 @@ bool Storage_MountSpi(int spiBus, uint32_t csPin, int driveIndex)
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = false,
-        .max_files = 5,
+        // LEDTREES: как и в MMC-ветке — общий лимит открытых файлов SD
+        .max_files = SDC_MAX_OPEN_FILES,
         .allocation_unit_size = 16 * 1024};
 
     // This initializes the slot without card detect (CD) and write protect (WP) signals.
