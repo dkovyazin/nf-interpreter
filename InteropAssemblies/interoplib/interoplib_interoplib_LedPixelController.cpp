@@ -94,7 +94,10 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
     memset(PROGRAM1_BUFFERS, 0, BUFFER_FRAMES_COUNT * FRAME_SIZE);
     memset(PROGRAM2_BUFFERS, 0, BUFFER_FRAMES_COUNT * FRAME_SIZE);
 
+    // LEDTREES: обязательно обнулить — иначе первый переход StartPlay/SetFull
+    // фейдится «из мусора» кучи (случайные цвета на первом разгорании)
     lastRawFrame = new uint8_t[FRAME_SIZE];
+    memset(lastRawFrame, 0, FRAME_SIZE);
 
     esp_err_t ret;
 
@@ -154,7 +157,7 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
     vSemaphoreCreateBinary(bodySemaphore);
     vSemaphoreCreateBinary(joinSemaphore);
 
-    LedPixelController::NativeSetFull(red, green, blue, hr);
+    LedPixelController::NativeSetFull(red, green, blue, 0, hr);
     if (hr != S_OK)
         return;
 
@@ -269,7 +272,12 @@ void LedPixelController::NativeWrite( CLR_RT_TypedArray_UINT8 data, HRESULT &hr 
     hr = S_OK;
 }
 
-void LedPixelController::NativeSetFull( uint8_t red, uint8_t green, uint8_t blue, HRESULT &hr )
+// LEDTREES: заливка цветом с плавным переходом от текущего состояния ленты
+// (transition мс; 0 — мгновенно). Обновляет lastRawFrame — следующий StartPlay
+// фейдится из реального состояния (после гашения — плавное разгорание из чёрного,
+// а не скачок от кадра давно остановленной программы). Яркость применяется как
+// в цикле воспроизведения. Вызов блокирует CLR-поток на время перехода.
+void LedPixelController::NativeSetFull( uint8_t red, uint8_t green, uint8_t blue, uint16_t transition, HRESULT &hr )
 {
     if (spi == NULL) {
         hr = S_FALSE;
@@ -281,11 +289,26 @@ void LedPixelController::NativeSetFull( uint8_t red, uint8_t green, uint8_t blue
 
     xSemaphoreTake(bodySemaphore, portMAX_DELAY);
 
-    for (int i = 0 ; i < LEDS_COUNT * STRIPS_CNT; ++i) {
-		FRAME_BUFFER[i * 3 + 0] = red;
-		FRAME_BUFFER[i * 3 + 1] = green;
-		FRAME_BUFFER[i * 3 + 2] = blue;
-	}
+    const uint8_t target[3] = { red, green, blue };
+
+    // именно FRAME_SIZE, не BUFF_SIZE: lastRawFrame выделен под фактический
+    // pixelCount, при меньшем количестве пикселей BUFF_SIZE вышел бы за границу
+    int steps = transition / (1000 / PROGRAM_TRANSITION_FPS);
+    for (int s = 1; s <= steps; ++s) {
+        uint8_t a = s * 0xFF / steps;
+        for (int i = 0; i < FRAME_SIZE; ++i) {
+            uint8_t raw = (lastRawFrame[i] * (0xFF - a) + target[i % 3] * a) / 0xFF;
+            FRAME_BUFFER[i] = raw * brightness / 0xFF;
+        }
+        spi_send_data(FRAME_BUFFER, FRAME_SIZE);
+        vTaskDelay(pdMS_TO_TICKS(1000 / PROGRAM_TRANSITION_FPS));
+    }
+
+    // финальный кадр точным цветом + фиксация состояния ленты
+    for (int i = 0; i < FRAME_SIZE; ++i) {
+        lastRawFrame[i] = target[i % 3];
+        FRAME_BUFFER[i] = target[i % 3] * brightness / 0xFF;
+    }
 
     spi_send_data(FRAME_BUFFER, FRAME_SIZE);
 
@@ -310,6 +333,11 @@ void LedPixelController::NativeSetPixel( uint8_t line, uint16_t cell, uint8_t re
     FRAME_BUFFER[i + 0] = red;
     FRAME_BUFFER[i + 1] = green;
     FRAME_BUFFER[i + 2] = blue;
+
+    // LEDTREES: состояние ленты для переходов (StartPlay/SetFull фейдятся отсюда)
+    lastRawFrame[i + 0] = red;
+    lastRawFrame[i + 1] = green;
+    lastRawFrame[i + 2] = blue;
 
     spi_send_data(FRAME_BUFFER, FRAME_SIZE);
 
