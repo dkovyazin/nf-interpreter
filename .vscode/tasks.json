@@ -87,43 +87,6 @@
             "panel": "shared"
         },
         "problemMatcher": []
-    },
-    {
-        "label": "Flash MIMXRT1060",
-        "type": "shell",
-        "command": "C:/nxp/MCUXpressoIDE_10.2.1_795/ide/bin/crt_emu_cm_redlink.exe",
-        "options": {
-            "cwd": "${workspaceFolder}/Build"
-        },
-        "args": [
-            "-pMIMXRT1062xxxxA",
-            "--vendor=NXP",
-            "--flash-dir=C:/nxp/MCUXpressoIDE_10.2.1_795/ide/bin/Flash",
-            "--flash-driver=MIMXRT1060_SFDP_QSPI.cfx",
-            "--flash-load=nanoBooter.elf",
-            "--rst"
-        ],
-        "presentation": {
-            "reveal": "always",
-            "panel": "dedicated"
-        },
-        "problemMatcher": []
-    },
-    {
-        "label": "Erase flash Silabs GG11",
-        "type": "shell",
-        "command": "${env:JLINK_PATH}/Jlink.exe -device default -si swd -CommandFile ${workspaceRoot}/.jlink/erase_gg11.jlink",
-        "windows": {
-            "options": {
-                "shell": {
-                    "executable": "cmd.exe",
-                    "args": [
-                        "/c"
-                    ]
-                }
-            }
-        },
-        "problemMatcher": []
     }
 ],
   "inputs": [
