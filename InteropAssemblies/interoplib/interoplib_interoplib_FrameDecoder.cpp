@@ -36,8 +36,10 @@ signed int FrameDecoder::NativeDecodeFrame( CLR_RT_TypedArray_UINT8 param0, sign
     signed int frameSize = param5;
 
     // валидация границ managed-массивов: не читаем/не пишем мимо
+    // offset/count складываем уже беззнаковыми: у signed int сумма двух больших
+    // положительных — переполнение (UB), и проверка вправе быть выкинута компилятором
     if (srcBase == NULL || prev == NULL || frame == NULL ||
-        offset < 0 || count < 0 || (uint32_t)(offset + count) > param0.GetSize() ||
+        offset < 0 || count < 0 || (uint32_t)offset + (uint32_t)count > param0.GetSize() ||
         frameSize <= 0 || (uint32_t)frameSize > param3.GetSize() || (uint32_t)frameSize > param4.GetSize())
     {
         hr = CLR_E_INVALID_PARAMETER;
@@ -65,26 +67,36 @@ signed int FrameDecoder::NativeDecodeFrame( CLR_RT_TypedArray_UINT8 param0, sign
         signed int n = h & 0x7F;
         if (n == 0x7F)
         {
-            // varint-удлинение прогона
-            signed int v = 0;
+            // varint-удлинение прогона. Копим в беззнаковом: (b & 0x7F) << 28 на
+            // signed int задевает знаковый бит — это UB, а на переполнении дальше
+            // ломаются проверки границ. У беззнакового лишние биты просто отпадают,
+            // а мусор ловит потолок кадра ниже.
+            uint32_t v = 0;
             signed int shift = 0;
             while (true)
             {
                 if (pos >= count)
                     return DECODE_ERR_NEED_DATA;
                 uint8_t b = src[pos++];
-                v |= (signed int)(b & 0x7F) << shift;
+                v |= (uint32_t)(b & 0x7F) << shift;
+                if (v > (uint32_t)frameSize)
+                    return DECODE_ERR_FORMAT; // прогон заведомо длиннее кадра — мусор
                 if ((b & 0x80) == 0)
                     break;
                 shift += 7;
                 if (shift > 28)
                     return DECODE_ERR_FORMAT; // varint длиннее разумного — мусор
             }
-            n = 0x7F + v;
+            n = 0x7F + (signed int)v;
         }
         signed int len = n + 1;
 
-        if (len <= 0 || out + len > frameSize)
+        // Проверяем БЕЗ сложения слева: out + len при len около INT_MAX заворачивается
+        // в минус и наивная проверка проходит, после чего memset/memcpy уходят далеко
+        // за пределы блока кучи. В managed-версии от этого прикрывал bounds-check CLR
+        // (ловилось как IndexOutOfRangeException), здесь такой страховки нет.
+        // Вычитание безопасно: в цикле out < frameSize, а pos <= count.
+        if (len <= 0 || len > frameSize - out)
             return DECODE_ERR_FORMAT; // сегмент вылезает за кадр
 
         if (isRun)
@@ -95,7 +107,7 @@ signed int FrameDecoder::NativeDecodeFrame( CLR_RT_TypedArray_UINT8 param0, sign
         }
         else
         {
-            if (pos + len > count)
+            if (len > count - pos)
                 return DECODE_ERR_NEED_DATA;
             memcpy(frame + out, src + pos, len);
             pos += len;
