@@ -521,6 +521,14 @@ CLR_INT32 Library_sys_net_native_System_Net_Sockets_NativeSocket::Helper__Select
         // For read mode ignore exception if we have data to read
         if (!(mode == 0 && fds.fd_count != 0))
         {
+            // Refresh the cached error from the socket's SO_ERROR before reporting failure.
+            // Callers hand our SOCK_SOCKET_ERROR to ThrowOnError, which reports whatever
+            // SOCK_getlasterror() holds -- and select() never stores the socket error there.
+            // Without this, a connect() that failed asynchronously surfaces as the stale
+            // EINPROGRESS cached by BindConnectHelper (WSAEWOULDBLOCK, 10035) instead of the
+            // real cause (WSAECONNREFUSED / WSAECONNRESET), for every socket in the runtime.
+            SOCK_getsocklasterror(handle);
+
             return SOCK_SOCKET_ERROR;
         }
     }
