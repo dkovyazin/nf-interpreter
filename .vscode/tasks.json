@@ -22,8 +22,13 @@
         "label": "nanoCLR: Monitor",
         "type": "shell",
         "command": "${userHome}\\.espressif\\python_env\\idf5.5_py3.11_env\\Scripts\\python.exe",
+        // Сброс при подключении задаётся вводом noReset (см. inputs — там же почему
+        // через переменную окружения). Ребут по месту — Ctrl+T Ctrl+R прямо в мониторе.
         "args": [ "-m", "esp_idf_monitor", "--port", "${input:comPort}", "build/nanoCLR.elf" ],
-        "options": { "cwd": "${workspaceFolder}" },
+        "options": {
+            "cwd": "${workspaceFolder}",
+            "env": { "ESP_IDF_MONITOR_NO_RESET": "${input:noReset}" }
+        },
         "problemMatcher": [],
         "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
@@ -122,6 +127,25 @@
     }
 ],
   "inputs": [
+    {
+      // Монитор читает переменную как bool(os.getenv('ESP_IDF_MONITOR_NO_RESET', ...))
+      // (esp_idf_monitor/base/argument_parser.py): истина — ЛЮБАЯ непустая строка,
+      // поэтому «0» и «false» тоже означают «не сбрасывать», а сброс даёт только
+      // пустое значение. Именно на этом здесь и обжигаются, поэтому выбор из двух,
+      // а не свободный ввод: опечатка в промпте молча меняла смысл на обратный.
+      // Дефолт — сброс: почти всегда нужен именно лог загрузки, а подключение к
+      // работающей плате, ничего ей не ломая, — осознанный редкий выбор.
+      // Через --no-reset так не сделать: это флаг без значения, и пустая подстановка
+      // уехала бы в argparse позиционным аргументом, сломав build/nanoCLR.elf.
+      "id": "noReset",
+      "type": "pickString",
+      "default": "",
+      "description": "Сбрасывать ли плату при подключении монитора.",
+      "options": [
+        { "label": "Сбросить — покажет лог загрузки", "value": "" },
+        { "label": "Не сбрасывать — подключиться к работающей", "value": "1" }
+      ]
+    },
     {
       "id": "toolsPath",
       "type": "promptString",
