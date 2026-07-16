@@ -2,7 +2,7 @@
 //
 // LEDTREES: нативный декод одного кадра FrameCodec (delta-RLE).
 // Формат байт-в-байт зеркалит managed FrameCodec.cs (LedTrees.Device.App) и
-// TS-энкодер (npm ledtrees-video-converter, source/frame-codec.ts):
+// TS-энкодер (npm ledtrees-device-assembly, source/frame-codec.ts):
 //   [mode:1] [RLE-сегменты, декодирующиеся ровно в frameSize байт]
 //   mode 0 — сами байты кадра; mode 1 — XOR-дельта к prev.
 //   Сегмент: [H:1] isRun = H & 0x80; n = H & 0x7F; n==0x7F -> n = 0x7F + varint;
