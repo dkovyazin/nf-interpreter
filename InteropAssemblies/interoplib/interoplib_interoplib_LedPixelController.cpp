@@ -20,6 +20,7 @@
 #include "interoplib_interoplib_LedPixelController.h"
 #include "esp_log.h"
 #include "interoplib_config.h"
+#include <driver/spi_master.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
@@ -88,14 +89,14 @@ static volatile uint8_t brightness = 255;
 class Transition {
     public:
         uint8_t current;
-        uint8_t lenght;
+        uint8_t length;
         uint8_t from[BUFF_SIZE];
         uint8_t to[BUFF_SIZE];
 
         bool getNextFrame(uint8_t* frameData) {
-            if (current < lenght) {
+            if (current < length) {
                 for (int i = 0; i < BUFF_SIZE; ++i) {
-                    uint8_t a = (current +1)*0xFF / lenght;
+                    uint8_t a = (current +1)*0xFF / length;
                     frameData[i] = ((from[i]*(0xFF-a) + to[i]*a))/0xFF;
                 }
                 ++current;
@@ -542,7 +543,7 @@ void LedPixelController::NativeWriteToPlayBuffer( uint16_t frame, CLR_RT_TypedAr
     memcpy(buffer + offset, frameData, FRAME_SIZE);
 
     if (frame == 0)
-        BUFFERED_FRAMES = 1; // сбрасываем счётчик фуфферизованных фреймов воспроизведения
+        BUFFERED_FRAMES = 1; // сбрасываем счётчик буферизованных кадров воспроизведения
     else
         BUFFERED_FRAMES++;
 
@@ -707,14 +708,14 @@ void LedTask_Handler( void * pvParameters )
 
     uint16_t transitionTime = taskParams->transition;
     if (1000 / taskParams->fps < transitionTime) {
-        transitionFrame.lenght = transitionTime / (1000 / PROGRAM_TRANSITION_FPS);
-        transitionFrame.lenght += 1; // for first frame of next program
+        transitionFrame.length = transitionTime / (1000 / PROGRAM_TRANSITION_FPS);
+        transitionFrame.length += 1; // for first frame of next program
         transitionFrame.current = 0;
 
         memcpy(transitionFrame.to, PREPARE_BUFFERS, FRAME_SIZE);
         memcpy(transitionFrame.from, lastRawFrame, FRAME_SIZE);
     } else
-        transitionFrame.lenght = 0;
+        transitionFrame.length = 0;
 
     CS_BEGIN(bodySemaphore);
     running = true;

@@ -40,8 +40,6 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_DISABLE=y
 
-CONFIG_UART_ISR_IN_IRAM=y
-
 # LEDTREES: PM выключен (upstream включает): питание не от батареи, DFS всё
 # равно не активировался (esp_pm_configure никто не вызывает), а PM-локи в
 # драйверах и tickless idle дают лишние накладные и джиттер
