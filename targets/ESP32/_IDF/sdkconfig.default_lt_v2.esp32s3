@@ -20,9 +20,12 @@ CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
 CONFIG_ESPTOOLPY_HEADER_FLASHSIZE_UPDATE=y
 CONFIG_ESPTOOLPY_FLASH_MODE_AUTO_DETECT=y
-CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+# LEDTREES: QIO вместо DIO - 4 линии данных к флешу вместо 2, кэш-промахи
+# (исполнение кода из флеша) обслуживаются ~вдвое быстрее. Применяется только
+# при прошивке по проводу (режим задаёт бутлоадер, OTA его не обновляет).
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASH_SAMPLE_MODE_STR=y
-CONFIG_ESPTOOLPY_FLASHMODE="dio"
+CONFIG_ESPTOOLPY_FLASHMODE="qio"
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
 CONFIG_ESPTOOLPY_FLASHFREQ_80M_DEFAULT=y
 CONFIG_ESPTOOLPY_FLASHFREQ="80m"
@@ -32,12 +35,17 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="targets/ESP32/_IDF/esp32s3/partitions_na
 # OTA: new firmware boots as PENDING_VERIFY; rolls back unless confirmed (NF_FEATURE_OTA)
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
-CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+# LEDTREES: -O2 вместо -Os (upstream) - +10-20% на CPU-bound коде, включая
+# интерпретатор CLR, ценой роста размера прошивки (следить за OTA-слотом)
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_DISABLE=y
 
 CONFIG_UART_ISR_IN_IRAM=y
 
-CONFIG_PM_ENABLE=y
+# LEDTREES: PM выключен (upstream включает): питание не от батареи, DFS всё
+# равно не активировался (esp_pm_configure никто не вызывает), а PM-локи в
+# драйверах и tickless idle дают лишние накладные и джиттер
+# CONFIG_PM_ENABLE is not set
 
 #
 # ESP PSRAM
@@ -76,6 +84,11 @@ CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
 
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 
+# LEDTREES: кэши больше дефолта (I-cache 16К, D-cache 32К) - меньше промахов
+# на большом коде CLR и работе с PSRAM, ценой 48 КБ внутренней SRAM
+CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+
 CONFIG_ESP_TASK_WDT_INIT=n
 
 CONFIG_ESP_IPC_TASK_STACK_SIZE=1024
@@ -87,7 +100,6 @@ CONFIG_FATFS_LFN_HEAP=y
 
 CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=2304
 CONFIG_FREERTOS_TIMER_TASK_PRIORITY=5
-CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
 
 CONFIG_LOG_DEFAULT_LEVEL_NONE=y
 
@@ -106,12 +118,21 @@ CONFIG_LWIP_SNTP_MAX_SERVERS=2
 
 # LEDTREES: пропускная способность TCP для раздачи программ/OTA (порт 44000).
 # Дефолтное окно/буфер отправки 5760 (4xMSS) ограничивали TCP ~окно/RTT
-# (~0.6-1 МБ/с) независимо от качества канала; 11520 (8xMSS) ~ удваивает
+# (~0.6-1 МБ/с) независимо от качества канала; 31680 (22xMSS) ~ удваивает
 # потолок ценой ~+12 КБ RAM на сокет. IRAM-оптимизация lwIP даёт ещё +10-20%
 # ценой IRAM (Wi-Fi IRAM-опты уже включены дефолтом IDF).
-CONFIG_LWIP_TCP_WND_DEFAULT=11520
-CONFIG_LWIP_TCP_SND_BUF_DEFAULT=11520
+CONFIG_LWIP_TCP_WND_DEFAULT=31680
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=31680
 CONFIG_LWIP_IRAM_OPTIMIZATION=y
+# LEDTREES: mailbox-очереди по образцу пресета P4 - дефолтный TCP recvmbox (6)
+# ронял темп на бурстах: сегменты ждали место в очереди на полной скорости
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=32
+CONFIG_LWIP_UDP_RECVMBOX_SIZE=32
+CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=32
+# LEDTREES: tcpip прибит к ядру 0, ко всему остальному сетевому стеку. CLR
+# теперь на ядре 1 (esp32s3/app_main.c), и непривязанный tcpip (дефолт IDF)
+# планировщик выталкивал бы ровно туда - на самое свободное ядро
+CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y
 
 CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC=y
 CONFIG_MBEDTLS_SSL_VARIABLE_BUFFER_LENGTH=y
@@ -137,12 +158,3 @@ CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=16
 CONFIG_ESP_TIMER_ISR_AFFINITY=0x1
 CONFIG_MBEDTLS_ECP_FIXED_POINT_OPTIM=y
 CONFIG_LOG_COLORS=y
-
-# Bluetooth LE (NimBLE) - same options as upstream sdkconfig.default_octal_ble.esp32s3
-CONFIG_BT_ENABLED=y
-CONFIG_BT_NIMBLE_ENABLED=y
-CONFIG_BT_NIMBLE_SVC_GAP_DEVICE_NAME="nanoBLE"
-CONFIG_BT_NIMBLE_TRANSPORT_ACL_FROM_LL_COUNT=10
-CONFIG_BT_NIMBLE_TRANSPORT_EVT_COUNT=20
-CONFIG_BT_NIMBLE_HS_FLOW_CTRL=y
-CONFIG_BT_CTRL_BLE_MAX_ACT=10

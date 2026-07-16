@@ -4,21 +4,21 @@
 # See LICENSE file in the project root for full license information.
 
 """
-Merge a board defconfig with an optional user config overlay into a full .config.
+Merge a board defconfig with optional config overlays into a full .config.
 
 Usage:
-    python nf_merge_config.py <kconfig_root> <defconfig> <user_overlay> <output_config>
+    python nf_merge_config.py <kconfig_root> <defconfig> <output_config> [overlay ...]
 
 Arguments:
     kconfig_root   Path to the root Kconfig file (e.g. /path/to/nf-interpreter/Kconfig)
     defconfig      Path to the board/target minimal defconfig
-    user_overlay   Path to the optional user config fragment (pass "" or a
-                   non-existent path to skip the overlay step)
     output_config  Path where the resulting full .config should be written
+    overlay        Zero or more config fragments applied on top of the defconfig
+                   in the given order (later overlays win); non-existent paths
+                   and empty arguments are silently skipped
 
-The user_overlay file, if it exists, is loaded on top of the board defconfig
-using Kconfig's non-replacing load (replace=False), so only the symbols
-explicitly listed in the overlay are modified.
+Overlays are loaded with Kconfig's non-replacing load (replace=False), so only
+the symbols explicitly listed in an overlay are modified.
 """
 import sys
 import os
@@ -33,11 +33,12 @@ import kconfiglib
 
 
 def main():
-    if len(sys.argv) != 5:
+    if len(sys.argv) < 4:
         print(__doc__)
         sys.exit(1)
 
-    kconfig_root, defconfig_path, user_overlay, output_config = sys.argv[1:]
+    kconfig_root, defconfig_path, output_config = sys.argv[1:4]
+    overlays = sys.argv[4:]
 
     if not os.path.isfile(kconfig_root):
         print(f"Error: Kconfig root not found: {kconfig_root}", file=sys.stderr)
@@ -50,8 +51,9 @@ def main():
     kconf = kconfiglib.Kconfig(kconfig_root, warn=False)
     kconf.load_config(defconfig_path)
 
-    if user_overlay and os.path.isfile(user_overlay):
-        kconf.load_config(user_overlay, replace=False)
+    for overlay in overlays:
+        if overlay and os.path.isfile(overlay):
+            kconf.load_config(overlay, replace=False)
 
     kconf.write_config(output_config)
 

@@ -10,36 +10,6 @@
     ],
     "configurePresets": [
         {
-            "name": "ESP32_LEDTREES_V1",
-            "description": "ESP32_LEDTREES_V1",
-            "displayName": "ESP32_LEDTREES_V1",
-            "inherits": [
-                "xtensa-esp32s3-preset",
-                "user-tools-repos",
-                "user-prefs"
-            ],
-            "cacheVariables": {
-                "TARGET_NAME": "${presetName}",
-                "NF_TARGET_DEFCONFIG": "targets/ESP32/defconfig/ESP32_LEDTREES_V1_defconfig",
-                "NF_INTEROP_ASSEMBLIES": "interoplib"
-            }
-        },
-        {
-            "name": "ESP32_LEDTREES_V1_DEV",
-            "description": "ESP32_LEDTREES_V1_DEV",
-            "displayName": "ESP32_LEDTREES_V1_DEV",
-            "inherits": [
-                "xtensa-esp32s3-preset",
-                "user-tools-repos",
-                "user-prefs"
-            ],
-            "cacheVariables": {
-                "TARGET_NAME": "${presetName}",
-                "NF_TARGET_DEFCONFIG": "targets/ESP32/defconfig/ESP32_LEDTREES_V1_DEV_defconfig",
-                "NF_INTEROP_ASSEMBLIES": "interoplib"
-            }
-        },
-        {
             "name": "ESP32_LEDTREES_V2",
             "description": "ESP32_LEDTREES_V2",
             "displayName": "ESP32_LEDTREES_V2",
@@ -51,21 +21,6 @@
             "cacheVariables": {
                 "TARGET_NAME": "${presetName}",
                 "NF_TARGET_DEFCONFIG": "targets/ESP32/defconfig/ESP32_LEDTREES_V2_defconfig",
-                "NF_INTEROP_ASSEMBLIES": "interoplib"
-            }
-        },
-        {
-            "name": "ESP32_LEDTREES_V2_DEV",
-            "description": "ESP32_LEDTREES_V2_DEV",
-            "displayName": "ESP32_LEDTREES_V2_DEV",
-            "inherits": [
-                "xtensa-esp32s3-preset",
-                "user-tools-repos",
-                "user-prefs"
-            ],
-            "cacheVariables": {
-                "TARGET_NAME": "${presetName}",
-                "NF_TARGET_DEFCONFIG": "targets/ESP32/defconfig/ESP32_LEDTREES_V2_DEV_defconfig",
                 "NF_INTEROP_ASSEMBLIES": "interoplib"
             }
         }

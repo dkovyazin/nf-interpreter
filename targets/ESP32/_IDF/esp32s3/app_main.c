@@ -90,5 +90,10 @@ void app_main()
     xTaskCreatePinnedToCore(&receiver_task, "ReceiverThread", 6144, NULL, 5, &ReceiverTask, 0);
 
     // start the CLR main task
-    xTaskCreatePinnedToCore(&main_task, "main_task", 15000, NULL, 5, NULL, 0);
+    // LEDTREES: core 1, not upstream's core 0 - moves the CLR away from Wi-Fi,
+    // BLE, SDMMC and the frame-feed task, which all live on core 0; its only
+    // neighbour is the lightweight LedTask (same scheme as the classic ESP32
+    // target). Pinning itself is required (upstream PR #2695, SPIFFS init bug
+    // with unpinned tasks) - the core choice was arbitrary there.
+    xTaskCreatePinnedToCore(&main_task, "main_task", 15000, NULL, 5, NULL, 1);
 }

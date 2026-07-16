@@ -113,6 +113,26 @@ function(nf_load_kconfig)
         set(_user_overlay "${NF_USER_KCONFIG_OVERLAY}")
     endif()
 
+    # NF_BUILD_RTM выводится из типа сборки, а не из defconfig: боевые типы
+    # (Release/MinSizeRel) собираются с RTM (отладчик CLR вырезан),
+    # Debug/RelWithDebInfo — с отладчиком. Оверлей лежит МЕЖДУ defconfig и
+    # user-kconfig, так что локально его можно переопределить user-оверлеем.
+    if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
+        set(_buildtype_fragment "CONFIG_NF_BUILD_RTM=y\n")
+    else()
+        set(_buildtype_fragment "# CONFIG_NF_BUILD_RTM is not set\n")
+    endif()
+
+    set(_buildtype_overlay "${CMAKE_BINARY_DIR}/.nf_buildtype.conf")
+    set(_existing_fragment "")
+    if(EXISTS "${_buildtype_overlay}")
+        file(READ "${_buildtype_overlay}" _existing_fragment)
+    endif()
+    # не перезаписываем без изменений — лишний таймстамп зря дёргал бы regen
+    if(NOT _existing_fragment STREQUAL _buildtype_fragment)
+        file(WRITE "${_buildtype_overlay}" "${_buildtype_fragment}")
+    endif()
+
     # Find Python
     # Use PATH-order (LOCATION) strategy instead of the default VERSION strategy,
     # and skip the Windows registry, so we find the same interpreter that the CI
@@ -122,22 +142,26 @@ function(nf_load_kconfig)
     set(Python3_FIND_REGISTRY NEVER)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
-    # Step 1: Merge the board defconfig (plus optional user overlay) into .config.
-    # Re-run whenever the defconfig, user overlay, or any Kconfig schema file is
-    # newer than .config, or when a different defconfig is selected (preset switch —
-    # timestamps alone would miss it and leave a stale .config).
+    # Step 1: Merge the board defconfig (plus overlays) into .config.
+    # Re-run whenever the defconfig, an overlay, or any Kconfig schema file is
+    # newer than .config, or when a different defconfig/build type is selected
+    # (preset or build-type switch — timestamps alone would miss it and leave
+    # a stale .config).
     set(_defconfig_stamp "${CMAKE_BINARY_DIR}/.nf_defconfig_used")
-    set(_last_defconfig "")
+    set(_stamp_content "${_defconfig_path}|${CMAKE_BUILD_TYPE}")
+    set(_last_stamp "")
     if(EXISTS "${_defconfig_stamp}")
-        file(READ "${_defconfig_stamp}" _last_defconfig)
+        file(READ "${_defconfig_stamp}" _last_stamp)
     endif()
 
     set(_needs_regen FALSE)
     if(NOT EXISTS "${_dot_config}")
         set(_needs_regen TRUE)
-    elseif(NOT "${_last_defconfig}" STREQUAL "${_defconfig_path}")
+    elseif(NOT "${_last_stamp}" STREQUAL "${_stamp_content}")
         set(_needs_regen TRUE)
     elseif("${_defconfig_path}" IS_NEWER_THAN "${_dot_config}")
+        set(_needs_regen TRUE)
+    elseif("${_buildtype_overlay}" IS_NEWER_THAN "${_dot_config}")
         set(_needs_regen TRUE)
     elseif(EXISTS "${_user_overlay}" AND "${_user_overlay}" IS_NEWER_THAN "${_dot_config}")
         set(_needs_regen TRUE)
@@ -164,8 +188,9 @@ function(nf_load_kconfig)
             COMMAND ${Python3_EXECUTABLE} "${_merge_script}"
                 "${_kconfig_root}"
                 "${_defconfig_path}"
-                "${_user_overlay}"
                 "${_dot_config}"
+                "${_buildtype_overlay}"
+                "${_user_overlay}"
             WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
             RESULT_VARIABLE _defconfig_result
             OUTPUT_VARIABLE _defconfig_output
@@ -176,7 +201,7 @@ function(nf_load_kconfig)
             message(FATAL_ERROR "nf_merge_config failed:\n${_defconfig_error}")
         endif()
 
-        file(WRITE "${_defconfig_stamp}" "${_defconfig_path}")
+        file(WRITE "${_defconfig_stamp}" "${_stamp_content}")
     endif()
 
     # Step 2: Run nf_genconfig.py to produce nf_config.h.
