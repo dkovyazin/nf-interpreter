@@ -26,6 +26,7 @@
 #include <task.h>
 #include <stdio.h>
 #include <string.h>
+#include <esp_heap_caps.h>
 
 // Захват семафора не прячем внутрь assert: под NDEBUG он остаётся вызовом только
 // потому, что ESP-IDF подменяет assert своим заголовком с
@@ -45,6 +46,21 @@ static uint16_t PREPARED_FRAMES = 0;
 static DMA_ATTR uint8_t* PREPARE_BUFFERS;    // кадры, подготовленные managed до StartPlay
 static DMA_ATTR uint8_t* PROGRAM1_BUFFERS;   // 1-й буфер воспроизведения
 static DMA_ATTR uint8_t* PROGRAM2_BUFFERS;   // 2-й буфер воспроизведения
+
+// Промежуточный буфер во ВНУТРЕННЕЙ RAM для чтения подкормки: буферы
+// воспроизведения (сотни КБ) живут в PSRAM, а SDMMC на S3 не умеет DMA в
+// PSRAM — fread туда падает в посекторный путь (~2 мс на сектор), пачка
+// кадров держала карту ~секунду и вдвое замедляла параллельные загрузки.
+// Чтение во внутренний буфер + memcpy в PSRAM возвращает мультисекторный DMA.
+//
+// Буфер на FEED_BOUNCE_FRAMES кадров: кадры в файле лежат подряд, и один fread
+// на несколько кадров размазывает накладные VFS/FATFS по пачке (50 вызовов
+// на пачку -> ~7). Не хватило внутренней DMA-памяти — ёмкость уполовинивается
+// вплоть до одного кадра (фактическая — в FEED_BOUNCE_CAP); NULL — чтение
+// прямо в PSRAM прежним медленным путём.
+#define FEED_BOUNCE_FRAMES 8
+static uint8_t* FEED_BOUNCE;
+static uint16_t FEED_BOUNCE_CAP = 0; // ёмкость FEED_BOUNCE, в кадрах
 static int LEDS_COUNT = 0;
 static int FRAME_SIZE = 0;
 
@@ -174,6 +190,17 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
     lastRawFrame = new uint8_t[FRAME_SIZE];
     memset(lastRawFrame, 0, FRAME_SIZE);
 
+    // NULL допустим (нет внутренней памяти) — подкормка тогда читает прямо в
+    // PSRAM-буфер прежним медленным путём. +4 — под выравнивающий сдвиг pad.
+    for (FEED_BOUNCE_CAP = FEED_BOUNCE_FRAMES; FEED_BOUNCE_CAP >= 1; FEED_BOUNCE_CAP /= 2) {
+        FEED_BOUNCE = (uint8_t*)heap_caps_malloc(
+            (size_t)FEED_BOUNCE_CAP * FRAME_SIZE + 4, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+        if (FEED_BOUNCE != NULL)
+            break;
+    }
+    if (FEED_BOUNCE == NULL)
+        FEED_BOUNCE_CAP = 0;
+
     esp_err_t ret;
 
     spi_bus_config_t bus_cfg {
@@ -284,7 +311,8 @@ static void FeedFrames(FILE** file, uint32_t fromFrame)
     const uint8_t playBufferAtStart = CURRENT_PLAY_BUFFER;
     uint8_t* target = (playBufferAtStart == 1) ? PROGRAM2_BUFFERS : PROGRAM1_BUFFERS;
 
-    for (uint16_t i = 0; i < BUFFER_FRAMES_COUNT; i++) {
+    uint16_t i = 0;
+    while (i < BUFFER_FRAMES_COUNT) {
         // Источник сменили — свободный буфер уже отдан новой программе.
         if (SOURCE_GENERATION != generation)
             return;
@@ -295,6 +323,18 @@ static void FeedFrames(FILE** file, uint32_t fromFrame)
 
         if (frame >= countFrames)
             frame = 0; // виток программы
+
+        // Сколько кадров забрать одним fread: до конца пачки, но не через виток
+        // (на витке разрыв последовательности в файле) и не больше ёмкости
+        // bounce. Без bounce — по кадру: слоты в PSRAM идут с шагом FRAME_SIZE,
+        // и слитное чтение при frameSize < FRAME_SIZE легло бы мимо слотов.
+        uint16_t chunk = BUFFER_FRAMES_COUNT - i;
+        if ((uint32_t)chunk > countFrames - frame)
+            chunk = (uint16_t)(countFrames - frame);
+        if (FEED_BOUNCE == NULL)
+            chunk = 1;
+        else if (chunk > FEED_BOUNCE_CAP)
+            chunk = FEED_BOUNCE_CAP;
 
         long offset = (long)header + (long)frame * frameSize;
         // seek только на разрыве последовательности (старт пачки и виток) —
@@ -307,20 +347,35 @@ static void FeedFrames(FILE** file, uint32_t fromFrame)
         }
 
         uint8_t* dst = target + i * FRAME_SIZE;
-        if (fread(dst, 1, frameSize, *file) != frameSize) {
+        // Через внутренний буфер, если он есть: чтение сразу в PSRAM-буфер
+        // роняет SDMMC в посекторный режим (см. FEED_BOUNCE). Сдвиг offset&3
+        // выравнивает указатель, которым FatFs после дозаполнения частичного
+        // сектора читает целые секторы напрямую в наш буфер: offset кадра в
+        // файле не кратен сектору, и без сдвига этот указатель оказывается
+        // невыровненным — sdmmc снова падает в посекторный путь.
+        uint8_t* readDst = (FEED_BOUNCE != NULL) ? (FEED_BOUNCE + (offset & 3)) : dst;
+        size_t want = (size_t)chunk * frameSize;
+        if (fread(readDst, 1, want, *file) != want) {
             ESP_LOGE("interoplib", "feed: кадр %u не дочитан", (unsigned)frame);
             fclose(*file);
             *file = NULL;
             return;
         }
 
-        // кадр в файле короче буфера устройства — хвост гасим, иначе в нём
-        // останутся байты предыдущей программы
-        if (frameSize < FRAME_SIZE)
-            memset(dst + frameSize, 0, FRAME_SIZE - frameSize);
+        // Раскладываем прочитанное по слотам буфера (шаг FRAME_SIZE). Хвост
+        // слота гасим, если кадр в файле короче буфера устройства — иначе в
+        // нём останутся байты предыдущей программы.
+        for (uint16_t f = 0; f < chunk; f++) {
+            uint8_t* slot = dst + (size_t)f * FRAME_SIZE;
+            if (readDst != dst)
+                memcpy(slot, readDst + (size_t)f * frameSize, frameSize);
+            if (frameSize < FRAME_SIZE)
+                memset(slot + frameSize, 0, FRAME_SIZE - frameSize);
+        }
 
-        expectedPos = offset + frameSize;
-        frame++;
+        expectedPos = offset + (long)want;
+        frame += chunk;
+        i += chunk;
     }
 
     // Публикуем пачку вместе с кадром, с которого она прочитана: одного «готово» мало,
@@ -806,7 +861,11 @@ void spi_send_data(const uint8_t *data, int len)
     t.length = len * 8;
     t.tx_buffer = data;
 
-    spi_device_polling_transmit(spi, &t);
+    // Interrupt-транзакция, не polling: кадр 4800 байт на 2.5 МГц идёт ~15 мс, и
+    // polling_transmit прожигал бы их busy-wait'ом (~46% ядра 1 при 30 fps),
+    // отбирая ядро у непривязанных задач (lwIP tcpip плавает между ядрами).
+    // Здесь задача спит до прерывания о завершении.
+    spi_device_transmit(spi, &t);
 
     // Кадр укладывается в одну транзакцию: max_transfer_sz шины задан в FRAME_SIZE
     // (NativeInit), а больше кадра сюда и не приходит.
