@@ -1,12 +1,18 @@
 //-----------------------------------------------------------------------------
 //
-//                   ** WARNING! **
-//    This file was generated automatically by a tool.
-//    Re-running the tool will overwrite this file.
-//    You should copy this file to a custom location
-//    before adding any customization in the copy to
-//    prevent loss of your changes when the tool is
-//    re-run.
+// LEDTREES: вывод кадров на светодиодную ленту по SPI.
+//
+// Реализация пишется руками (в отличие от interoplib.cpp/.h и *_mshl.cpp — те
+// генерируются сборкой managed-проекта и лежат готовыми в
+// ledtrees-esp32/nanoframework/main/interoplib/Stubs/interoplib; их надо копировать
+// оттуда, а не править здесь: таблица method_lookup индексируется порядковым номером
+// метода в ассембли, и ручная вставка сдвигает индексы — вызовы уходят в чужие слоты).
+//
+// Два потока вывода:
+//   LedTask  (core 1) — гонит кадры на ленту с фиксированным fps из play-буфера;
+//   FeedTask (core 0) — читает следующую пачку кадров с SD в свободный буфер.
+// Буферов воспроизведения два, по BUFFER_FRAMES_COUNT кадров: пока один играет,
+// во второй читается продолжение программы.
 //
 //-----------------------------------------------------------------------------
 
@@ -21,15 +27,11 @@
 #include <stdio.h>
 #include <string.h>
 
-// LEDTREES: захват/отдача — обычные вызовы, а не assert.
-//
-// Раньше здесь было assert(xSemaphoreTake(...) == pdTRUE). Работало это только
-// потому, что ESP-IDF подменяет assert своим заголовком и при
-// CONFIG_COMPILER_ASSERT_NDEBUG_EVALUATE=y (дефолт) под NDEBUG разворачивает его в
-// ((void)(expr)) — то есть выражение всё же вычисляется. Стоит выставить эту опцию в
-// n — и все захваты семафоров молча исчезнут из RTM-прошивки: плеер начнёт рвать
-// кадры и подвисать, а причину будет не найти. Побочный эффект внутри assert не
-// прячем; при portMAX_DELAY take не может вернуть ошибку иначе как на NULL-семафоре.
+// Захват семафора не прячем внутрь assert: под NDEBUG он остаётся вызовом только
+// потому, что ESP-IDF подменяет assert своим заголовком с
+// CONFIG_COMPILER_ASSERT_NDEBUG_EVALUATE. Выставь опцию в n — и захваты молча
+// исчезнут из RTM-прошивки. При portMAX_DELAY take не возвращает ошибку иначе как
+// на NULL-семафоре, поэтому результат и не проверяем.
 #define CS_BEGIN(s) ((void)xSemaphoreTake(s, portMAX_DELAY))
 #define CS_END(s) ((void)xSemaphoreGive(s))
 
@@ -40,22 +42,23 @@ static spi_device_handle_t spi = NULL;
 static spi_host_device_t SPI_HOST = SPI2_HOST;
 static DMA_ATTR uint8_t FRAME_BUFFER[BUFF_SIZE];
 static uint16_t PREPARED_FRAMES = 0;
-// volatile: BUFFERED_FRAMES и CURRENT_PLAY_BUFFER делят LedTask (core 1) и задача
-// подкормки (core 0) без блокировок — иначе оптимизатор вправе закешировать их в
-// регистре на весь цикл (вся единица трансляции у него перед глазами).
-static volatile short BUFFERED_FRAMES = 0;
-static DMA_ATTR uint8_t* PREPARE_BUFFERS;    // буфер для подготовки кадров перед воспроизведением
+static DMA_ATTR uint8_t* PREPARE_BUFFERS;    // кадры, подготовленные managed до StartPlay
 static DMA_ATTR uint8_t* PROGRAM1_BUFFERS;   // 1-й буфер воспроизведения
 static DMA_ATTR uint8_t* PROGRAM2_BUFFERS;   // 2-й буфер воспроизведения
-static volatile uint8_t CURRENT_PLAY_BUFFER = 1;
 static int LEDS_COUNT = 0;
 static int FRAME_SIZE = 0;
+
+// Общее у LedTask (core 1) и FeedTask (core 0), читается/пишется без блокировок —
+// отсюда volatile: иначе оптимизатору ничто не мешает закешировать их в регистре
+// на весь цикл вывода.
+static volatile short BUFFERED_FRAMES = 0;       // кадров в готовой пачке; -1 — пачки нет
+static volatile int32_t BUFFERED_FROM = -1;      // кадр программы, с которого пачка прочитана
+static volatile uint8_t CURRENT_PLAY_BUFFER = 1; // какой из PROGRAMx_BUFFERS играет: 1 или 2
 
 static volatile bool running = false;
 static volatile bool requestedForStop = false;
 static SemaphoreHandle_t bodySemaphore = NULL;
 static SemaphoreHandle_t joinSemaphore = NULL;
-static SemaphoreHandle_t writeSemaphore = NULL;
 
 struct LedTaskParams {
     uint8_t fps;
@@ -90,24 +93,25 @@ class Transition {
 static uint8_t* lastRawFrame;
 static Transition transitionFrame;
 
-// LEDTREES: нативная подкормка кадров из файла кэша.
-//
-// Раньше LedTask на каждый выпитый буфер (50 кадров, ~2 с) постил managed-событие,
-// а C# читал 240 КБ с SD и заливал их 50 interop-вызовами. Это держало SD-латентность
-// (120-240 мс) на CLR-потоке диспетчера событий 24/7, а на MAIN конкурировало с
-// раздачей программ по TCP: не успел за виток — BUFFERED_FRAMES остаётся -1 и лента
-// повторяет буфер (рывок). Здесь то же самое делает отдельная FreeRTOS-задача,
-// читая сразу в play-буфер: 0 interop-переходов, 1 копия вместо трёх, CLR не при делах.
-//
-// Приоритет ниже LedTask — подкормка никогда не вытесняет вывод кадра.
+// Подкормка кадров: LedTask на каждом витке буфера уведомляет FeedTask, та читает
+// следующую пачку с SD прямо в свободный play-буфер. Приоритет ниже LedTask —
+// чтение никогда не вытесняет вывод кадра, а живёт на другом ядре, чтобы
+// SD-латентность (120-240 мс на пачку) не задевала тайминг ленты.
 #define FEED_CLOSE 0xFFFFFFFFu
 #define FEED_TASK_PRIORITY (CONFIG_ESP32_PTHREAD_TASK_PRIO_DEFAULT - 1)
 
-// Запрос пачки несёт НОМЕР ПОКОЛЕНИЯ источника вместе с индексом кадра. Слот
-// уведомления один, и запрос, поставленный старым LedTask, может быть подхвачен
-// задачей уже ПОСЛЕ смены программы — сверки поколения внутри FeedFrames тут мало:
-// та снимает его на входе и увидит уже новое значение. Поколение в самом запросе
-// позволяет опознать и выбросить такой запрос-призрак.
+// Пока плеер замер в ожидании пачки — переспрашиваем раз в ~1 с (при 30 fps), иначе
+// не приехавшая пачка (не открылся файл, оборвалось чтение) заморозила бы ленту
+// навсегда. Не каждый кадр: пока задача читает, повтор лишь заставит её перечитать
+// ту же пачку впустую.
+#define STALL_RETRY_FRAMES 30
+
+// Запрос пачки = поколение источника + индекс кадра в одном слове.
+//
+// Слот уведомления у задачи один, и запрос, поставленный LedTask старой программы,
+// может быть подхвачен уже ПОСЛЕ смены источника. Сверки поколения внутри FeedFrames
+// для этого мало: она снимает его на входе и увидит уже новое. Поколение, приехавшее
+// в самом запросе, позволяет опознать такой запрос-призрак и выбросить.
 #define FEED_REQ(gen, frame) ((((uint32_t)(gen) & 0x7FFFu) << 16) | ((uint32_t)(frame) & 0xFFFFu))
 #define FEED_REQ_EPOCH(v) (((v) >> 16) & 0x7FFFu)
 #define FEED_REQ_FRAME(v) ((v) & 0xFFFFu)
@@ -122,12 +126,9 @@ static uint16_t SOURCE_COUNT_FRAMES = 0;
 static uint16_t SOURCE_START_FRAME = 0;           // сдвиг фазы устройства в сборке
 static volatile bool SOURCE_DIRTY = false;        // путь сменился — переоткрыть
 
-// Поколение источника: растёт на каждый SetSource/ClearSource. Подкормка сверяет его
-// на каждом кадре и бросает пачку, если источник сменился под ней. Без этого смена
-// программы даёт наложение: старый LedTask успел заказать пачку, задача читает кадры
-// СТАРОЙ программы в свободный буфер, а новый LedTask тем временем кладёт туда же
-// первые 50 кадров новой — и недочитавший feeder затирает их старыми. В managed-версии
-// эту роль играла проверка task.IsDisposed на каждом кадре.
+// Растёт на каждый SetSource. Смена программы обязана отменить пачку, читающуюся под
+// неё: свободный буфер уже отдан новой программе, и дописывать в него кадры старой
+// нельзя — иначе первые ~50 кадров идут вперемешку.
 static volatile uint32_t SOURCE_GENERATION = 0;
 
 // managed-путь ("D:\programs-cache\103.4.dat") в VFS-путь ("/D/programs-cache/103.4.dat"):
@@ -168,22 +169,12 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
     memset(PROGRAM1_BUFFERS, 0, BUFFER_FRAMES_COUNT * FRAME_SIZE);
     memset(PROGRAM2_BUFFERS, 0, BUFFER_FRAMES_COUNT * FRAME_SIZE);
 
-    // LEDTREES: обязательно обнулить — иначе первый переход StartPlay/SetFull
-    // фейдится «из мусора» кучи (случайные цвета на первом разгорании)
+    // Обнулить обязательно: с этого кадра фейдится первый же переход
+    // (StartPlay/SetFull), и мусор кучи дал бы случайные цвета на разгорании.
     lastRawFrame = new uint8_t[FRAME_SIZE];
     memset(lastRawFrame, 0, FRAME_SIZE);
 
     esp_err_t ret;
-
-    if (spi != NULL) {
-        ret = spi_bus_remove_device(spi);
-        ESP_ERROR_CHECK(ret);
-
-        ret = spi_bus_free(SPI_HOST);
-        ESP_ERROR_CHECK(ret);
-
-        spi = NULL;
-    }
 
     spi_bus_config_t bus_cfg {
         mosi_io_num: 		mosiPin,
@@ -227,7 +218,6 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
     ret = spi_bus_add_device(SPI_HOST, &dev_cfg, &spi);
     ESP_ERROR_CHECK(ret);
 
-    writeSemaphore = xSemaphoreCreateMutex();
     vSemaphoreCreateBinary(bodySemaphore);
     vSemaphoreCreateBinary(joinSemaphore);
     sourceSemaphore = xSemaphoreCreateMutex();
@@ -252,9 +242,11 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
 }
 
 // Читает BUFFER_FRAMES_COUNT кадров начиная с fromFrame в НЕиграющий буфер.
-// Ошибку не «чинит»: BUFFERED_FRAMES остаётся -1, LedTask повторит текущий буфер
-// (лента крутит последние 50 кадров вместо чёрного экрана), а следующий виток
-// попробует снова — файл переоткроется.
+//
+// Любой отказ (не открылся файл, оборвалось чтение, сменился источник) — это просто
+// выход без публикации пачки: BUFFERED_FRAMES остаётся -1, LedTask замирает на
+// последнем кадре и через STALL_RETRY_FRAMES переспросит. Файл при отказе закрываем,
+// чтобы повтор открыл его заново.
 static void FeedFrames(FILE** file, uint32_t fromFrame)
 {
     char path[sizeof(SOURCE_PATH)];
@@ -283,22 +275,22 @@ static void FeedFrames(FILE** file, uint32_t fromFrame)
         }
     }
 
-    // Сдвиг на startFrame — фаза устройства в сборке. Программа закольцована,
-    // поэтому сдвиг подкормки тождественен старту с этого кадра (та же логика,
-    // что была в managed-обработчике).
+    // Сдвиг на startFrame — фаза устройства в сборке: программа закольцована, поэтому
+    // подкормка со сдвигом тождественна старту с этого кадра.
     uint32_t frame = (fromFrame + startFrame) % countFrames;
     long expectedPos = -1;
 
-    // Неиграющий буфер. Пока мы здесь, LedTask не может его переназначить: свой
-    // буфер он выбирает либо на старте (LedTask_Start ждёт feedMutex), либо на витке,
-    // увидев BUFFERED_FRAMES != -1 — а его мы выставляем только на выходе.
-    uint8_t* target = (CURRENT_PLAY_BUFFER == 1) ? PROGRAM2_BUFFERS : PROGRAM1_BUFFERS;
+    // Пишем в буфер, который сейчас не играет.
+    const uint8_t playBufferAtStart = CURRENT_PLAY_BUFFER;
+    uint8_t* target = (playBufferAtStart == 1) ? PROGRAM2_BUFFERS : PROGRAM1_BUFFERS;
 
     for (uint16_t i = 0; i < BUFFER_FRAMES_COUNT; i++) {
-        // источник сменили под нами — буфер уже принадлежит новой программе,
-        // дописывать в него кадры старой нельзя (BUFFERED_FRAMES не трогаем:
-        // пусть LedTask доиграет текущий буфер, новую пачку закажет следующий)
+        // Источник сменили — свободный буфер уже отдан новой программе.
         if (SOURCE_GENERATION != generation)
+            return;
+
+        // Плеер свопнулся под нами — target стал играющим, писать в него нельзя.
+        if (CURRENT_PLAY_BUFFER != playBufferAtStart)
             return;
 
         if (frame >= countFrames)
@@ -331,9 +323,13 @@ static void FeedFrames(FILE** file, uint32_t fromFrame)
         frame++;
     }
 
-    // Публикуем пачку только если источник за время чтения не менялся.
-    if (SOURCE_GENERATION == generation)
+    // Публикуем пачку вместе с кадром, с которого она прочитана: одного «готово» мало,
+    // потому что принести мы могли и пачку, которую плеер уже не ждёт (в слот
+    // уведомления лёг повторный запрос). Сверив BUFFERED_FROM, он такую отбросит.
+    if (SOURCE_GENERATION == generation && CURRENT_PLAY_BUFFER == playBufferAtStart) {
+        BUFFERED_FROM = (int32_t)fromFrame;
         BUFFERED_FRAMES = BUFFER_FRAMES_COUNT;
+    }
 }
 
 void FeedTask_Handler( void * pvParameters )
@@ -346,11 +342,10 @@ void FeedTask_Handler( void * pvParameters )
         if (xTaskNotifyWait(0, 0xFFFFFFFFu, &request, portMAX_DELAY) != pdTRUE)
             continue;
 
-        // Источник менялся — отпускаем файл до всего остального: пока он открыт,
-        // managed не сможет ни удалить, ни переписать кэш (IO в nanoFramework
-        // эксклюзивен). Проверяем на КАЖДОМ пробуждении, а не только по FEED_CLOSE:
-        // тот занимает единственный слот уведомления и может быть затёрт запросом
-        // пачки от ещё живого старого LedTask.
+        // Источник менялся — отпускаем файл: пока он открыт, managed не сможет ни
+        // удалить, ни переписать кэш (IO в nanoFramework эксклюзивен). Смотрим на
+        // КАЖДОМ пробуждении, а не только по FEED_CLOSE: тот занимает единственный
+        // слот уведомления и может быть затёрт запросом пачки от живого ещё LedTask.
         bool dirty;
         CS_BEGIN(sourceSemaphore);
         dirty = SOURCE_DIRTY;
@@ -365,14 +360,12 @@ void FeedTask_Handler( void * pvParameters )
         if (request == FEED_CLOSE)
             continue;
 
-        // Запрос-призрак от старого LedTask: программу уже сменили, а уведомление
-        // осталось в слоте. Поколение внутри FeedFrames такое не ловит — оно снимается
-        // на входе и уже новое.
+        // Запрос-призрак: программу сменили, а уведомление осталось в слоте.
         if (FEED_REQ_EPOCH(request) != (SOURCE_GENERATION & 0x7FFFu))
             continue;
 
-        // под мьютексом: LedTask_Start ждёт его перед стартом нового таска, чтобы
-        // недочитанная пачка старой программы не легла в буфер новой
+        // feedMutex удерживается на всё чтение: LedTask_Start ждёт его перед стартом
+        // нового таска, чтобы недочитанная пачка не легла в буфер новой программы.
         CS_BEGIN(feedMutex);
         FeedFrames(&file, FEED_REQ_FRAME(request));
         CS_END(feedMutex);
@@ -396,10 +389,9 @@ void LedPixelController::NativeSetSource( CLR_RT_TypedArray_UINT8 path, unsigned
         memcpy(managedPath, (void*)path.GetBuffer(), length);
 
     // Кадр обязан помещаться в буфер устройства: FeedFrames кладёт кадры с шагом
-    // FRAME_SIZE, и при frameSize > FRAME_SIZE последний уедет за конец
-    // PROGRAM1/2_BUFFERS. Managed это проверяет (IsValidFrameSize), но сверяет с
-    // константой DEVICE_FRAME_SIZE, а не с фактическим FRAME_SIZE = pixelCount*12,
-    // — на кучу это пускать нельзя даже при битом заголовке кэша.
+    // FRAME_SIZE, и больший frameSize уехал бы за конец PROGRAMx_BUFFERS. Проверку
+    // managed (IsValidFrameSize) тут не зачесть: она сверяет с константой, а не с
+    // фактическим FRAME_SIZE = pixelCount*12.
     if (length > 0 && (frameSize == 0 || (int)frameSize > FRAME_SIZE)) {
         hr = CLR_E_INVALID_PARAMETER;
         return;
@@ -415,13 +407,12 @@ void LedPixelController::NativeSetSource( CLR_RT_TypedArray_UINT8 path, unsigned
     SOURCE_COUNT_FRAMES = countFrames;
     SOURCE_START_FRAME = startFrame;
     SOURCE_DIRTY = true;
-    SOURCE_GENERATION++;   // пачка, читающаяся прямо сейчас, увидит это и бросит чтение
+    SOURCE_GENERATION++;   // читающаяся прямо сейчас пачка увидит это и бросит чтение
     CS_END(sourceSemaphore);
 
-    // Будим задачу на ЛЮБУЮ смену источника, не только на снятие: по SOURCE_DIRTY она
-    // закроет старый файл. Иначе он висел бы открытым до следующей пачки, а у короткой
-    // программы (countFrames <= BUFFER_FRAMES_COUNT) пачек не бывает вовсе — и managed
-    // не смог бы перезаписать кэш.
+    // Будим задачу на ЛЮБУЮ смену источника, не только на снятие: иначе старый файл
+    // висел бы открытым до следующей пачки, а у программы короче BUFFER_FRAMES_COUNT
+    // пачек не бывает вовсе — и managed не смог бы перезаписать кэш.
     xTaskNotify(FeedTask, FEED_CLOSE, eSetValueWithOverwrite);
 
     hr = S_OK;
@@ -510,18 +501,13 @@ void LedPixelController::NativeWrite( CLR_RT_TypedArray_UINT8 data, HRESULT &hr 
         return;
     }
 
-    if (spi == NULL) {
-        hr = CLR_E_BUSY;
-        return;
-    }
-
     LedTask_Stop();
     LedTask_Join();
 
-    xSemaphoreTake(bodySemaphore, portMAX_DELAY);
+    CS_BEGIN(bodySemaphore);
 
-    // send exactly the managed array length (capped at frame size):
-    // copying FRAME_SIZE unconditionally read past the end of shorter arrays
+    // Шлём ровно столько, сколько дал managed (но не больше кадра): копирование
+    // FRAME_SIZE безусловно читало за концом более коротких массивов.
     int length = (int)data.GetSize();
     if (length > FRAME_SIZE)
         length = FRAME_SIZE;
@@ -530,16 +516,17 @@ void LedPixelController::NativeWrite( CLR_RT_TypedArray_UINT8 data, HRESULT &hr 
 
     spi_send_data(FRAME_BUFFER, length);
 
-    xSemaphoreGive(bodySemaphore);
+    CS_END(bodySemaphore);
 
     hr = S_OK;
 }
 
-// LEDTREES: заливка цветом с плавным переходом от текущего состояния ленты
-// (transition мс; 0 — мгновенно). Обновляет lastRawFrame — следующий StartPlay
-// фейдится из реального состояния (после гашения — плавное разгорание из чёрного,
-// а не скачок от кадра давно остановленной программы). Яркость применяется как
-// в цикле воспроизведения. Вызов блокирует CLR-поток на время перехода.
+// Заливка цветом с плавным переходом от текущего состояния ленты (transition мс;
+// 0 — мгновенно). Блокирует вызвавший поток CLR на время перехода.
+//
+// Обновляет lastRawFrame, поэтому следующий StartPlay фейдится из реального
+// состояния ленты: после гашения — разгорание из чёрного, а не скачок от кадра
+// давно остановленной программы.
 void LedPixelController::NativeSetFull( uint8_t red, uint8_t green, uint8_t blue, uint16_t transition, HRESULT &hr )
 {
     if (spi == NULL) {
@@ -550,12 +537,12 @@ void LedPixelController::NativeSetFull( uint8_t red, uint8_t green, uint8_t blue
     LedTask_Stop();
     LedTask_Join();
 
-    xSemaphoreTake(bodySemaphore, portMAX_DELAY);
+    CS_BEGIN(bodySemaphore);
 
     const uint8_t target[3] = { red, green, blue };
 
-    // именно FRAME_SIZE, не BUFF_SIZE: lastRawFrame выделен под фактический
-    // pixelCount, при меньшем количестве пикселей BUFF_SIZE вышел бы за границу
+    // Циклы идут по FRAME_SIZE, не по BUFF_SIZE: lastRawFrame выделен под фактический
+    // pixelCount, и при меньшей ленте BUFF_SIZE вышел бы за границу кучи.
     int steps = transition / (1000 / PROGRAM_TRANSITION_FPS);
     for (int s = 1; s <= steps; ++s) {
         uint8_t a = s * 0xFF / steps;
@@ -575,7 +562,7 @@ void LedPixelController::NativeSetFull( uint8_t red, uint8_t green, uint8_t blue
 
     spi_send_data(FRAME_BUFFER, FRAME_SIZE);
 
-    xSemaphoreGive(bodySemaphore);
+    CS_END(bodySemaphore);
 
     hr = S_OK;
 }
@@ -590,31 +577,31 @@ void LedPixelController::NativeSetPixel( uint8_t line, uint16_t cell, uint8_t re
     LedTask_Stop();
     LedTask_Join();
 
-    xSemaphoreTake(bodySemaphore, portMAX_DELAY);
+    CS_BEGIN(bodySemaphore);
 
     int i = (cell * 3 * 4) + (line * 3);
     FRAME_BUFFER[i + 0] = red;
     FRAME_BUFFER[i + 1] = green;
     FRAME_BUFFER[i + 2] = blue;
 
-    // LEDTREES: состояние ленты для переходов (StartPlay/SetFull фейдятся отсюда)
+    // Состояние ленты для переходов — из него фейдятся StartPlay и SetFull.
     lastRawFrame[i + 0] = red;
     lastRawFrame[i + 1] = green;
     lastRawFrame[i + 2] = blue;
 
     spi_send_data(FRAME_BUFFER, FRAME_SIZE);
 
-    xSemaphoreGive(bodySemaphore);
+    CS_END(bodySemaphore);
 
     hr = S_OK;
 }
 
 void LedTask_Start(uint16_t countFrames, uint8_t fps, uint16_t transition)
 {
-    // Дожидаемся, пока подкормка отпустит буферы: пачка, заказанная предыдущей
-    // программой, может дочитываться прямо сейчас, а новый таск сразу скопирует
-    // в свободный буфер PREPARE_BUFFERS. Поколение источника уже сменилось
-    // (SetSource), поэтому пачка бросит чтение на ближайшем кадре — ждём единицы мс.
+    // Ждём, пока подкормка отпустит буферы: пачка предыдущей программы может
+    // дочитываться прямо сейчас, а новый таск сразу зальёт свободный буфер из
+    // PREPARE_BUFFERS. Поколение источника уже сменил SetSource, так что пачка бросит
+    // чтение на ближайшем кадре — ожидание в единицы мс.
     if (feedMutex != NULL) {
         CS_BEGIN(feedMutex);
         CS_END(feedMutex);
@@ -627,15 +614,15 @@ void LedTask_Start(uint16_t countFrames, uint8_t fps, uint16_t transition)
         params.countFrames = countFrames;
         params.transition = transition;
 
+        // core 1: вывод кадров не должен делить ядро с подкормкой и её SD-чтением
         xTaskCreatePinnedToCore(
-            LedTask_Handler,                                  /* Функция задачи. */
-            "LedTask",                                    /* Ее имя. */
-            4096,                                       /* Размер стека функции */
-            (void*) &params,                                       /* Параметры */
-            CONFIG_ESP32_PTHREAD_TASK_PRIO_DEFAULT,     /* Приоритет */
-            &LedTask,                                     /* Дескриптор задачи для отслеживания */
+            LedTask_Handler,
+            "LedTask",
+            4096,
+            (void*) &params,
+            CONFIG_ESP32_PTHREAD_TASK_PRIO_DEFAULT,
+            &LedTask,
             1);
-
     }
 
     CS_END(bodySemaphore);
@@ -647,7 +634,7 @@ void LedTask_Stop()
 
     if (running) {
         requestedForStop = true;
-        (void)xSemaphoreTake(joinSemaphore, portMAX_DELAY);  // не assert — см. CS_BEGIN
+        (void)xSemaphoreTake(joinSemaphore, portMAX_DELAY);
     }
 
     CS_END(bodySemaphore);
@@ -655,7 +642,7 @@ void LedTask_Stop()
 
 void LedTask_Join()
 {
-    (void)xSemaphoreTake(joinSemaphore, portMAX_DELAY);  // не assert — см. CS_BEGIN
+    (void)xSemaphoreTake(joinSemaphore, portMAX_DELAY);
     (void)xSemaphoreGive(joinSemaphore);
 }
 
@@ -681,7 +668,6 @@ void LedTask_Handler( void * pvParameters )
     CS_END(bodySemaphore);
 
 	TickType_t lastWakeTime = xTaskGetTickCount();
-    //TickType_t frameDelay = pdMS_TO_TICKS(1000 / taskParams->fps);
 
     // выбираем буфер воспроизведения, куда скопируем буфер подготовки
     uint8_t* buffer;
@@ -703,33 +689,30 @@ void LedTask_Handler( void * pvParameters )
     // опознать запрос от уже смещённой программы.
     const uint32_t myGeneration = SOURCE_GENERATION;
 
-    uint32_t frameIndex = 0;
+    // Кадр программы, лежащий в начале текущего буфера, и кадр, с которого заказана
+    // следующая пачка. Сквозной счётчик выведенных кадров тут не годится: в замирании
+    // лента стоит, а он бы убегал — и пачка заказывалась бы не с того места.
+    uint32_t bufferStartFrame = 0;
+    uint32_t nextBufferFrame = 0;
+
     uint16_t bufferFrameIndex = 0;
+    uint16_t stallTicks = 0;
     while (1) {
         CS_BEGIN(bodySemaphore);
 
-        if (bufferFrameIndex == 0) {
-            BUFFERED_FRAMES = -1; // сбрасываем счётчик буфера воспроизведения
-
-            if (taskParams->countFrames > BUFFER_FRAMES_COUNT) {
-                // просим подготовить следующую порцию кадров, начиная с этого индекса
-                // (читает задача подкормки прямо в неиграющий буфер — см. FeedFrames)
-                if (FeedTask != NULL)
-                    xTaskNotify(FeedTask, FEED_REQ(myGeneration, frameIndex + bufferFramesCount), eSetValueWithOverwrite);
+        bool stalled = false;
+        if (bufferFrameIndex >= bufferFramesCount) {
+            if (taskParams->countFrames <= BUFFER_FRAMES_COUNT) {
+                // Программа целиком уместилась в буфер — подкормки для неё нет и не
+                // будет, виток это просто её закольцовка.
+                bufferFrameIndex = 0;
             }
-        }
-        else if(bufferFrameIndex == bufferFramesCount) {
-            // вычитали весь буфер воспроизведения
+            else if (BUFFERED_FRAMES != -1 && BUFFERED_FROM == (int32_t)nextBufferFrame) {
+                // Свопаем только на ту пачку, которую ждём: прийти могла и лишняя —
+                // повторный запрос из слота заставляет задачу перечитать пачку.
+                bufferFrameIndex = 0;
+                stallTicks = 0;
 
-            // vTaskDelay(pdMS_TO_TICKS(2000));
-
-            bufferFrameIndex = 0; // сбрасываем счётчик фреймов из буффера
-
-            if (BUFFERED_FRAMES == -1) {
-                // нет новых буфферизованных кадров, тогда просто начинаем заново читать тот же буфер что и был до этого
-            }
-            else {
-                // есть новые буфферизованные кадры, значита меняем буффер воспроизведения на него
                 if (CURRENT_PLAY_BUFFER == 1) {
                     buffer = PROGRAM2_BUFFERS;
                     CURRENT_PLAY_BUFFER = 2;
@@ -740,15 +723,36 @@ void LedTask_Handler( void * pvParameters )
                 }
 
                 bufferFramesCount = BUFFERED_FRAMES;
-
-                int prepareFramesFrom = frameIndex + bufferFramesCount;
-                if(prepareFramesFrom >= taskParams->countFrames)
-                    prepareFramesFrom = prepareFramesFrom - taskParams->countFrames;
-
-                // просим подготовить следующую порцию кадров
-                if (FeedTask != NULL)
-                    xTaskNotify(FeedTask, FEED_REQ(myGeneration, prepareFramesFrom), eSetValueWithOverwrite);
+                bufferStartFrame = nextBufferFrame;
             }
+            else {
+                // Пачка не приехала — замираем на последнем кадре, как буферизация
+                // видео на медленном канале. Играть буфер заново нельзя: тогда запрос
+                // уходил бы на каждом витке, копился в слоте, и задача читала бы пачку
+                // дважды — вторым чтением уже в играющий буфер.
+                stalled = true;
+            }
+        }
+
+        // Начало буфера: первый кадр таска или первый кадр после свопа.
+        if (!stalled && bufferFrameIndex == 0) {
+            BUFFERED_FRAMES = -1; // -1 = следующая пачка ещё не приехала
+
+            if (taskParams->countFrames > BUFFER_FRAMES_COUNT && FeedTask != NULL) {
+                nextBufferFrame = bufferStartFrame + bufferFramesCount;
+                if (nextBufferFrame >= taskParams->countFrames)
+                    nextBufferFrame -= taskParams->countFrames;
+
+                xTaskNotify(FeedTask, FEED_REQ(myGeneration, nextBufferFrame), eSetValueWithOverwrite);
+            }
+        }
+        else if (stalled && ++stallTicks >= STALL_RETRY_FRAMES) {
+            // Замерли надолго — пачка не едет вовсе. Переспрашиваем; дубликат
+            // безопасен: задача бросит чтение, если плеер свопнется под ней, а лишнюю
+            // пачку отсеет сверка BUFFERED_FROM.
+            stallTicks = 0;
+            if (taskParams->countFrames > BUFFER_FRAMES_COUNT && FeedTask != NULL)
+                xTaskNotify(FeedTask, FEED_REQ(myGeneration, nextBufferFrame), eSetValueWithOverwrite);
         }
 
         if (buffer == NULL)
@@ -756,10 +760,14 @@ void LedTask_Handler( void * pvParameters )
 
         // передаём кадр на ленту
         int offset = bufferFrameIndex * FRAME_SIZE;
-        //memcpy(FRAME_BUFFER, buffer + offset, FRAME_SIZE);
 
         TickType_t xTimeIncrement = transitionTimeIncrement;
-        if (!transitionFrame.getNextFrame(lastRawFrame)) {
+        if (stalled) {
+            // lastRawFrame не трогаем — на ленту снова уходит последний кадр. Именно
+            // шлём, а не молчим: в замирании должен работать SetBrightness.
+            xTimeIncrement = programTimeIncrement;
+        }
+        else if (!transitionFrame.getNextFrame(lastRawFrame)) {
             memcpy(lastRawFrame, buffer + offset, FRAME_SIZE);
             xTimeIncrement = programTimeIncrement;
         }
@@ -778,38 +786,30 @@ void LedTask_Handler( void * pvParameters )
 
 		vTaskDelayUntil(&lastWakeTime, xTimeIncrement);
 
-        bufferFrameIndex++;
-
-        if (frameIndex == taskParams->countFrames - 1)
-            frameIndex = 0;
-        else
-            frameIndex++;
+        // в замирании индекс не двигаем: буфер доигран, ждём пачку
+        if (!stalled)
+            bufferFrameIndex++;
     }
 
     CS_BEGIN(bodySemaphore);
     running = false;
     CS_END(bodySemaphore);
 
-    (void)xSemaphoreGive(joinSemaphore);  // не assert — см. CS_BEGIN
-
+    (void)xSemaphoreGive(joinSemaphore);
     vTaskDelete(NULL);
 }
 
 void spi_send_data(const uint8_t *data, int len)
 {
-	uint32_t offset = 0;
-	do {
-        int tx_len = len;//((len - offset) < SPI_MAX_DMA_LEN) ? (len - offset) : SPI_MAX_DMA_LEN;
+    spi_transaction_t t;
+    memset(&t, 0, sizeof(t));
+    t.length = len * 8;
+    t.tx_buffer = data;
 
-		spi_transaction_t t;
-		memset(&t, 0, sizeof(t));
-		t.length = tx_len * 8;
-		t.tx_buffer = data + offset;
+    spi_device_polling_transmit(spi, &t);
 
-		spi_device_polling_transmit(spi, &t);
-		offset += tx_len;
-		break;
-	} while (offset < len);
+    // Кадр укладывается в одну транзакцию: max_transfer_sz шины задан в FRAME_SIZE
+    // (NativeInit), а больше кадра сюда и не приходит.
 
     vTaskDelay(1);
 }
