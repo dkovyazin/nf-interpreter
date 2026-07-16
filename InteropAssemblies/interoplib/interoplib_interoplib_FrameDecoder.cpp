@@ -91,12 +91,14 @@ signed int FrameDecoder::NativeDecodeFrame( CLR_RT_TypedArray_UINT8 param0, sign
         }
         signed int len = n + 1;
 
-        // Проверяем БЕЗ сложения слева: out + len при len около INT_MAX заворачивается
-        // в минус и наивная проверка проходит, после чего memset/memcpy уходят далеко
-        // за пределы блока кучи. В managed-версии от этого прикрывал bounds-check CLR
-        // (ловилось как IndexOutOfRangeException), здесь такой страховки нет.
-        // Вычитание безопасно: в цикле out < frameSize, а pos <= count.
-        if (len <= 0 || len > frameSize - out)
+        // Сверху len держит потолок varint выше (прогон длиннее frameSize — мусор),
+        // снизу — единица, так что переполниться len не может; остаётся проверить
+        // только выход сегмента за кадр. Сравниваем БЕЗ сложения слева: out + len —
+        // потенциальное переполнение signed, а вычитание справа безопасно, т.к. в
+        // цикле out < frameSize. Границы проверяем сами: bounds-check CLR
+        // (в managed-версии ловил такое как IndexOutOfRangeException) в нативном
+        // коде не работает, промах уходит прямо в память за блоком кучи.
+        if (len > frameSize - out)
             return DECODE_ERR_FORMAT; // сегмент вылезает за кадр
 
         if (isRun)

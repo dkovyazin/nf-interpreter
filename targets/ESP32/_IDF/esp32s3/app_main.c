@@ -44,6 +44,7 @@ void main_task(void *pvParameter)
     vTaskDelete(NULL);
 }
 
+#if CONFIG_NF_BUILD_RTM
 // Dummy defauly log method to stop output from ESP32 IDF
 int dummyLog(const char *format, va_list arg)
 {
@@ -51,6 +52,7 @@ int dummyLog(const char *format, va_list arg)
     (void)arg;
     return 1;
 }
+#endif
 
 // App_main
 // Called from Esp32 IDF start up code before scheduler starts
@@ -63,10 +65,6 @@ void app_main()
     // Stop any logging being directed to VS connection, was an issue with Nimble, outputting on Uart0
     // TODO : redirect these to debugger controlled from nanoframework.Hardware.Esp32
     esp_log_set_vprintf(dummyLog);
-#else
-    // DEV builds: keep error-level logging for diagnostics (rare output,
-    // acceptable interference with WireProtocol on the shared console port)
-    esp_log_level_set("*", ESP_LOG_ERROR);
 #endif
 
     // recover from a full or corrupted NVS instead of ESP_ERROR_CHECK-panicking

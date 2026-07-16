@@ -21,10 +21,10 @@
 //          deployment is applied by the boot-hook ONLY when running from the
 //          target slot; if the IDF bootloader rolls the slot back, the boot-hook
 //          restores the previous deployment from 'backup'.
-// - LIGHT: only the managed deployment changes. Commit point is the NVS state
-//          write. Rollback is driven by a boot-attempt counter: if the managed
-//          stack fails to confirm within OTA_MAX_BOOT_ATTEMPTS boots, the
-//          boot-hook restores 'backup'.
+// - LIGHT: only the managed deployment changes. Commit point is the ota_state
+//          record write. Rollback is driven by a boot-attempt counter: if the
+//          managed stack fails to confirm within OTA_MAX_BOOT_ATTEMPTS boots,
+//          the boot-hook restores 'backup'.
 //
 // All functions return true on success. The API is not thread-safe: it is
 // intended to be driven by a single managed updater thread.
@@ -49,7 +49,7 @@ extern "C"
         OTA_STATE_ROLLED_BACK = 5,
     } NF_Ota_State;
 
-// 'target' NVS value for a light update (no slot switch)
+// OtaStateRecord 'target' value for a light update (no slot switch)
 #define OTA_TARGET_NONE 0xFF
 
 // light updates: boots without managed confirmation before rollback

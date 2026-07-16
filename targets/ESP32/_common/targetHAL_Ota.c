@@ -147,9 +147,9 @@ static bool StateStore(void)
 // in-flight nanoCLR image write
 static esp_ota_handle_t otaHandle;
 static const esp_partition_t *otaUpdatePartition;
-// set only by a successful FirmwareEnd: CommitFull refuses to switch the boot
-// partition unless the image in otaUpdatePartition was fully written and
-// validated in THIS session (statics survive failed sessions and CLR restarts)
+// set only by a successful FirmwareEnd: the image in otaUpdatePartition was fully
+// written and validated. Consumed by StageBegin, which latches it into
+// stageBoundToFirmware and clears it - see below
 static bool otaFirmwareReady;
 
 // otaFirmwareReady latched into the current stage session by StageBegin. The raw
@@ -633,7 +633,6 @@ void NF_Ota_ApplyPending(void)
                 break;
             }
 
-            // apply the staged image
             __attribute__((fallthrough));
 
         case OTA_STATE_COPYING:

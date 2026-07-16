@@ -10,7 +10,8 @@
   работают на любой машине после установки IDF 5.5.4:
   - **Run and Debug → `nanoCLR: Flash + Monitor`** — прошивка + монитор (спросит COM-порт).
   - **`nanoCLR: Flash + Debug` / `Attach + Debug`** — JTAG-отладка нативного кода.
-  - Задачи `nanoCLR: Flash / Monitor / Flash + Monitor` (Terminal → Run Task).
+  - Задачи `nanoCLR: Flash (esptool)` / `nanoCLR: Monitor` / `nanoCLR: Flash + Monitor`
+    (Terminal → Run Task).
 - `install-scripts/setup-ledtrees-dev.ps1` — бутстрап-скрипт (ниже).
 
 ## Что генерируется на каждой машине (gitignored)

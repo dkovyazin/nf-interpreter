@@ -87,7 +87,9 @@ static void NF_ESP32_ApDhcpServerStart()
 
     if (ec != ESP_OK && ec != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STARTED)
     {
-        ESP_LOGE(TAG, "Unable to start AP DHCP server - result %d", ec);
+#if !CONFIG_NF_BUILD_RTM
+        esp_rom_printf("[NET-DIAG] AP dhcps start failed 0x%x\r\n", (unsigned)ec);
+#endif
         // not fatal for the rest of the network stack
     }
 
@@ -392,7 +394,9 @@ esp_err_t NF_ESP32_InitaliseWifi()
         esp_err_t ecPs = esp_wifi_set_ps(WIFI_PS_NONE);
         if (ecPs != ESP_OK)
         {
-            ESP_LOGE(TAG, "Unable to disable Wi-Fi power save - result %d", ecPs);
+#if !CONFIG_NF_BUILD_RTM
+            esp_rom_printf("[NET-DIAG] esp_wifi_set_ps(NONE) failed 0x%x\r\n", (unsigned)ecPs);
+#endif
         }
 
         // if need, config the AP
@@ -421,7 +425,7 @@ esp_err_t NF_ESP32_InitaliseWifi()
 
             // LEDTREES: start the DHCP server on the AP interface (LWIP_DHCPS is
             // enabled in the lt sdkconfig); the AUTOUP-only netif flags above keep
-            // esp_netif from doing it automatically (ported from the release branch).
+            // esp_netif from doing it automatically.
             // The AP_START handler restarts dhcps on every AP (re)start, including
             // the bounce esp_wifi_set_config causes; this direct call is a belt-and-
             // braces fallback for the steady state (idempotent: ALREADY_STARTED ok).
