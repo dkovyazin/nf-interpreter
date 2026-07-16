@@ -1,6 +1,6 @@
 //-----------------------------------------------------------------------------
 //
-//                   ** WARNING! **
+//                   ** WARNING! ** 
 //    This file was generated automatically by a tool.
 //    Re-running the tool will overwrite this file.
 //    You should copy this file to a custom location
@@ -32,6 +32,8 @@ namespace interoplib
 
             static void NativeWriteToPlayBuffer( uint16_t param0, CLR_RT_TypedArray_UINT8 param1, HRESULT &hr );
 
+            static void NativeSetSource( CLR_RT_TypedArray_UINT8 param0, unsigned int param1, uint16_t param2, uint16_t param3, uint16_t param4, HRESULT &hr );
+
             static void NativeWrite( CLR_RT_TypedArray_UINT8 param0, HRESULT &hr );
 
             static void NativeSetFull( uint8_t param0, uint8_t param1, uint8_t param2, uint16_t param3, HRESULT &hr );
@@ -46,6 +48,7 @@ void LedTask_Start(uint16_t countFrames, uint8_t fps, uint16_t transition);
 void LedTask_Stop();
 void LedTask_Join();
 void LedTask_Handler( void * pvParameters );
+void FeedTask_Handler( void * pvParameters );   // LEDTREES: задача подкормки кадров из файла
 void spi_send_data(const uint8_t *data, int len);
 
 #endif // INTEROPLIB_INTEROPLIB_INTEROPLIB_LEDPIXELCONTROLLER_H
