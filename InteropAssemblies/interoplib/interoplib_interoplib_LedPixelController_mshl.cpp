@@ -186,6 +186,18 @@ HRESULT Library_interoplib_interoplib_LedPixelController::NativeSetFull___STATIC
     NANOCLR_NOCLEANUP();
 }
 
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeGetPlayPosition___STATIC__I4( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        signed int retValue = LedPixelController::NativeGetPlayPosition(  hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        SetResult_INT32( stack, retValue );
+    }
+    NANOCLR_NOCLEANUP();
+}
+
 HRESULT Library_interoplib_interoplib_LedPixelController::NativeSetPixel___STATIC__VOID__U1__U2__U1__U1__U1( CLR_RT_StackFrame& stack )
 {
     NANOCLR_HEADER(); hr = S_OK;

@@ -73,6 +73,11 @@ static volatile int32_t BUFFERED_FROM = -1;      // кадр программы,
 static volatile uint8_t CURRENT_PLAY_BUFFER = 1; // какой из PROGRAMx_BUFFERS играет: 1 или 2
 
 static volatile bool running = false;
+
+// Текущий кадр программы от задачи вывода (реальная позиция ленты, в замирании
+// подкормки не растёт); -1 — воспроизведение не идёт. Читается managed-кодом
+// (NativeGetPlayPosition) для сводки синхронности узлов на MAIN.
+static volatile int32_t CURRENT_PROGRAM_FRAME = -1;
 static volatile bool requestedForStop = false;
 static SemaphoreHandle_t bodySemaphore = NULL;
 static SemaphoreHandle_t joinSemaphore = NULL;
@@ -481,6 +486,12 @@ void LedPixelController::NativeSetBrightness( uint8_t value, HRESULT &hr )
     hr = S_OK;
 }
 
+signed int LedPixelController::NativeGetPlayPosition( HRESULT &hr )
+{
+    hr = S_OK;
+    return CURRENT_PROGRAM_FRAME;
+}
+
 void LedPixelController::NativePrepareForPlay( uint16_t frame, CLR_RT_TypedArray_UINT8 data, HRESULT &hr )
 {
     if (spi == NULL) {
@@ -775,8 +786,10 @@ void LedTask_Handler( void * pvParameters )
         if (bufferFrameIndex >= bufferFramesCount) {
             if (taskParams->countFrames <= BUFFER_FRAMES_COUNT) {
                 // Программа целиком уместилась в буфер — подкормки для неё нет и не
-                // будет, виток это просто её закольцовка.
-                bufferFrameIndex = 0;
+                // будет, виток это просто её закольцовка. Модуль, а не сброс в 0:
+                // пропуск кадров при просрочке периода мог перешагнуть границу
+                // кольца, и обнуление съедало бы фазу перескока.
+                bufferFrameIndex = (uint16_t)(bufferFrameIndex % bufferFramesCount);
             }
             else if (BUFFERED_FRAMES != -1 && BUFFERED_FROM == (int32_t)nextBufferFrame) {
                 // Свопаем только на ту пачку, которую ждём: прийти могла и лишняя —
@@ -832,6 +845,11 @@ void LedTask_Handler( void * pvParameters )
         // передаём кадр на ленту
         int offset = bufferFrameIndex * FRAME_SIZE;
 
+        // позиция для сводки синхронности: в замирании не обновляется —
+        // лента реально стоит, и наблюдатель должен видеть именно это
+        if (!stalled)
+            CURRENT_PROGRAM_FRAME = (int32_t)((bufferStartFrame + bufferFrameIndex) % taskParams->countFrames);
+
         TickType_t xTimeIncrement = transitionTimeIncrement;
         if (stalled) {
             // lastRawFrame не трогаем — на ленту снова уходит последний кадр. Именно
@@ -855,22 +873,31 @@ void LedTask_Handler( void * pvParameters )
 
         if (exit) break;
 
-        // Отставание НЕ догоняем. После любого провала (долгая SPI-транзакция,
-        // тик без сна) vTaskDelayUntil гнал бы витки вплотную до выравнивания
-        // графика — bodySemaphore в этом режиме перехватывается на своём же
-        // ядре быстрее, чем просыпается ожидающий с другого, и Stop голодал
-        // секундами. Просрочили период — продолжаем от текущего момента.
-        if (xTaskDelayUntil(&lastWakeTime, xTimeIncrement) == pdFALSE)
-            lastWakeTime = xTaskGetTickCount();
+        // Просрочка периода: график подтягиваем ЦЕЛЫМ числом периодов и ровно
+        // столько же кадров пропускаем — сетка времени (и темп fps) сохраняется
+        // точной, узлы группы не расползаются. Две прежние крайности не годятся:
+        // догоняющий бурст оригинального vTaskDelayUntil держал темп, но гнал
+        // витки вплотную, почти не отпуская bodySemaphore (Stop голодал
+        // секундами); полный сброс lastWakeTime лечил голодание, но терял
+        // остаток периода на каждой просрочке — узлы с разной нагрузкой играли
+        // с разным фактическим fps и дрейфовали на миллисекунды в секунду.
+        TickType_t skippedPeriods = 0;
+        if (xTaskDelayUntil(&lastWakeTime, xTimeIncrement) == pdFALSE) {
+            const TickType_t step = xTimeIncrement > 0 ? xTimeIncrement : 1;
+            skippedPeriods = (xTaskGetTickCount() - lastWakeTime) / step;
+            lastWakeTime += skippedPeriods * step;
+        }
 
         // в замирании индекс не двигаем: буфер доигран, ждём пачку
         if (!stalled)
-            bufferFrameIndex++;
+            bufferFrameIndex += (uint16_t)(1 + skippedPeriods);
     }
 
     CS_BEGIN(bodySemaphore);
     running = false;
     CS_END(bodySemaphore);
+
+    CURRENT_PROGRAM_FRAME = -1;
 
     (void)xSemaphoreGive(joinSemaphore);
     vTaskDelete(NULL);
@@ -892,5 +919,10 @@ void spi_send_data(const uint8_t *data, int len)
     // Кадр укладывается в одну транзакцию: max_transfer_sz шины задан в FRAME_SIZE
     // (NativeInit), а больше кадра сюда и не приходит.
 
+    // НЕ убирать: latch-пауза WS2812 — лента фиксирует кадр по тишине на линии
+    // данных, без паузы кадры сливаются в один поток. Тик (до 10 мс) заведомо
+    // покрывает требуемые ~280 мкс; вместе с передачей (~14 мс) это делает
+    // бюджет кадра тесным, и часть кадров задевает дедлайн периода — задача
+    // вывода компенсирует это пропуском целых периодов без потери темпа.
     vTaskDelay(1);
 }

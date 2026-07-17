@@ -39,6 +39,7 @@ namespace interoplib
             static void NativeSetFull( uint8_t param0, uint8_t param1, uint8_t param2, uint16_t param3, HRESULT &hr );
 
             static void NativeSetPixel( uint8_t param0, uint16_t param1, uint8_t param2, uint8_t param3, uint8_t param4, HRESULT &hr );
+            static signed int NativeGetPlayPosition( HRESULT &hr );
 
         };
     }

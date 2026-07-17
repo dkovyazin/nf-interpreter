@@ -51,6 +51,7 @@ struct Library_interoplib_interoplib_LedPixelController
     NANOCLR_NATIVE_DECLARE(NativeWrite___STATIC__VOID__SZARRAY_U1);
     NANOCLR_NATIVE_DECLARE(NativeSetFull___STATIC__VOID__U1__U1__U1__U2);
     NANOCLR_NATIVE_DECLARE(NativeSetPixel___STATIC__VOID__U1__U2__U1__U1__U1);
+    NANOCLR_NATIVE_DECLARE(NativeGetPlayPosition___STATIC__I4);
 
     //--//
 };
