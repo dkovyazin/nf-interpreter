@@ -670,6 +670,16 @@ void LedTask_Start(uint16_t countFrames, uint8_t fps, uint16_t transition)
         params.countFrames = countFrames;
         params.transition = transition;
 
+        // Флаги ставим ЗДЕСЬ, до создания задачи, а не внутри неё. Раньше
+        // running=true выставляла сама задача после старта — между созданием и
+        // первым её витком гейт «if (!running)» был дырявым: второй StartPlay,
+        // пришедший в это окно, создавал ВТОРУЮ задачу-зомби. Две задачи вечно
+        // пинг-понгуют bodySemaphore на одном ядре, а requestedForStop гасит
+        // только одну из них. Заодно чистим флаг остановки: он мог остаться
+        // взведённым, если прошлый Stop сработал по уже вышедшей задаче.
+        running = true;
+        requestedForStop = false;
+
         // core 1: вывод кадров не должен делить ядро с подкормкой и её SD-чтением
         xTaskCreatePinnedToCore(
             LedTask_Handler,
@@ -684,16 +694,20 @@ void LedTask_Start(uint16_t countFrames, uint8_t fps, uint16_t transition)
     CS_END(bodySemaphore);
 }
 
+// Сигнал остановки БЕЗ захвата bodySemaphore. Захват здесь голодал секундами:
+// задача вывода держит семафор почти весь кадр (SPI-транзакция + vTaskDelay
+// внутри секции), а после любого отставания vTaskDelayUntil гонит витки
+// вплотную (догоняющий режим) — семафор перехватывался на своём же ядре
+// быстрее, чем просыпался ожидающий CLR на другом. Флаг volatile, задача
+// читает его на каждом витке — семафор для сигнала не нужен. Конкурентных
+// вызовов со стороны managed не бывает: nanoCLR исполняет все managed-потоки
+// на одной нативной задаче, и interop-вызовы не перекрываются.
 void LedTask_Stop()
 {
-    CS_BEGIN(bodySemaphore);
-
     if (running) {
         requestedForStop = true;
         (void)xSemaphoreTake(joinSemaphore, portMAX_DELAY);
     }
-
-    CS_END(bodySemaphore);
 }
 
 void LedTask_Join()
@@ -718,7 +732,8 @@ void LedTask_Handler( void * pvParameters )
         transitionFrame.length = 0;
 
     CS_BEGIN(bodySemaphore);
-    running = true;
+    // running=true уже выставил LedTask_Start (до создания задачи — иначе гейт
+    // «if (!running)» дыряв и второй StartPlay плодил задачу-зомби)
     const TickType_t programTimeIncrement = 1000.0 / taskParams->fps / portTICK_PERIOD_MS;
     const TickType_t transitionTimeIncrement = 1000.0 / PROGRAM_TRANSITION_FPS / portTICK_PERIOD_MS;
     CS_END(bodySemaphore);
@@ -840,7 +855,13 @@ void LedTask_Handler( void * pvParameters )
 
         if (exit) break;
 
-		vTaskDelayUntil(&lastWakeTime, xTimeIncrement);
+        // Отставание НЕ догоняем. После любого провала (долгая SPI-транзакция,
+        // тик без сна) vTaskDelayUntil гнал бы витки вплотную до выравнивания
+        // графика — bodySemaphore в этом режиме перехватывается на своём же
+        // ядре быстрее, чем просыпается ожидающий с другого, и Stop голодал
+        // секундами. Просрочили период — продолжаем от текущего момента.
+        if (xTaskDelayUntil(&lastWakeTime, xTimeIncrement) == pdFALSE)
+            lastWakeTime = xTaskGetTickCount();
 
         // в замирании индекс не двигаем: буфер доигран, ждём пачку
         if (!stalled)
