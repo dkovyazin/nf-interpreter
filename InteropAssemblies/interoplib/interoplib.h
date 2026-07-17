@@ -23,6 +23,16 @@ typedef enum __nfpack OtaState
     OtaState_RolledBack = 5,
 } OtaState;
 
+struct Library_interoplib_interoplib_Crypto
+{
+    NANOCLR_NATIVE_DECLARE(NativeSha256Begin___STATIC__BOOLEAN);
+    NANOCLR_NATIVE_DECLARE(NativeSha256Update___STATIC__BOOLEAN__SZARRAY_U1__I4);
+    NANOCLR_NATIVE_DECLARE(NativeSha256Final___STATIC__BOOLEAN__SZARRAY_U1);
+    NANOCLR_NATIVE_DECLARE(NativeVerifyP256___STATIC__BOOLEAN__SZARRAY_U1__SZARRAY_U1__SZARRAY_U1);
+
+    //--//
+};
+
 struct Library_interoplib_interoplib_FrameDecoder
 {
     NANOCLR_NATIVE_DECLARE(NativeDecodeFrame___STATIC__I4__SZARRAY_U1__I4__I4__SZARRAY_U1__SZARRAY_U1__U2);

@@ -12,6 +12,15 @@
 
 static const CLR_RT_MethodHandler method_lookup[] =
 {
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    Library_interoplib_interoplib_Crypto::NativeSha256Begin___STATIC__BOOLEAN,
+    Library_interoplib_interoplib_Crypto::NativeSha256Update___STATIC__BOOLEAN__SZARRAY_U1__I4,
+    Library_interoplib_interoplib_Crypto::NativeSha256Final___STATIC__BOOLEAN__SZARRAY_U1,
+    Library_interoplib_interoplib_Crypto::NativeVerifyP256___STATIC__BOOLEAN__SZARRAY_U1__SZARRAY_U1__SZARRAY_U1,
     Library_interoplib_interoplib_FrameDecoder::NativeDecodeFrame___STATIC__I4__SZARRAY_U1__I4__I4__SZARRAY_U1__SZARRAY_U1__U2,
     NULL,
     NULL,
@@ -67,7 +76,7 @@ static const CLR_RT_MethodHandler method_lookup[] =
 const CLR_RT_NativeAssemblyData g_CLR_AssemblyNative_interoplib =
 {
     "interoplib",
-    0xCB134B77,
+    0xFE628114,
     method_lookup,
     { 2, 0, 0, 0 }
 };
