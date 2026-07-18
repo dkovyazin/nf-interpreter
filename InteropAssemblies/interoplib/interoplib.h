@@ -71,6 +71,8 @@ struct Library_interoplib_interoplib_Ota
     NANOCLR_NATIVE_DECLARE(NativeConfirm___STATIC__BOOLEAN);
     NANOCLR_NATIVE_DECLARE(NativeGetState___STATIC__U1);
     NANOCLR_NATIVE_DECLARE(NativeIsPendingConfirm___STATIC__BOOLEAN);
+    NANOCLR_NATIVE_DECLARE(NativeReadRunningFirmware___STATIC__I4__I4__SZARRAY_U1__I4);
+    NANOCLR_NATIVE_DECLARE(NativeReadDeploy___STATIC__I4__I4__SZARRAY_U1__I4);
 
     //--//
 };

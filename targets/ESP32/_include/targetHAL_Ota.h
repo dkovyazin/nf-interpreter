@@ -85,6 +85,14 @@ extern "C"
     // confirm the running bundle: cancels IDF rollback and finishes the state machine
     bool NF_Ota_Confirm(void);
 
+    // ---- partition reads (serving the bundle from own partitions) ----
+
+    // read 'count' bytes at 'offset' of the running nanoCLR slot / the deploy
+    // partition. Returns count, or -1 (no partition / out of range / io error).
+    // Flash reads do not stall XIP - safe while the LED output task is running.
+    int32_t NF_Ota_ReadRunningFirmware(uint32_t offset, uint8_t *buffer, uint32_t count);
+    int32_t NF_Ota_ReadDeploy(uint32_t offset, uint8_t *buffer, uint32_t count);
+
     // ---- state ----
 
     uint8_t NF_Ota_GetState(void);

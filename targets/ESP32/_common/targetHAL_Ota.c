@@ -319,6 +319,35 @@ bool NF_Ota_GetRunningSha256(uint8_t sha256[32])
 }
 
 //////////////////////////////////////////////////////////////////////
+// partition reads (serving the bundle from own partitions)
+//////////////////////////////////////////////////////////////////////
+
+static int32_t ReadPartitionRange(const esp_partition_t *partition, uint32_t offset, uint8_t *buffer, uint32_t count)
+{
+    if (!partition || !buffer || count == 0 || offset + count > partition->size)
+    {
+        return -1;
+    }
+
+    if (esp_partition_read(partition, offset, buffer, count) != ESP_OK)
+    {
+        return -1;
+    }
+
+    return (int32_t)count;
+}
+
+int32_t NF_Ota_ReadRunningFirmware(uint32_t offset, uint8_t *buffer, uint32_t count)
+{
+    return ReadPartitionRange(esp_ota_get_running_partition(), offset, buffer, count);
+}
+
+int32_t NF_Ota_ReadDeploy(uint32_t offset, uint8_t *buffer, uint32_t count)
+{
+    return ReadPartitionRange(FindDataPartition(OTA_PARTITION_SUBTYPE_DEPLOY), offset, buffer, count);
+}
+
+//////////////////////////////////////////////////////////////////////
 // managed deployment image (stage partition)
 //////////////////////////////////////////////////////////////////////
 

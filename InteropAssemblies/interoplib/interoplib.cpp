@@ -61,6 +61,8 @@ static const CLR_RT_MethodHandler method_lookup[] =
     NULL,
     NULL,
     NULL,
+    NULL,
+    NULL,
     Library_interoplib_interoplib_Ota::NativeFirmwareBegin___STATIC__BOOLEAN__I4,
     Library_interoplib_interoplib_Ota::NativeFirmwareWrite___STATIC__BOOLEAN__SZARRAY_U1__I4,
     Library_interoplib_interoplib_Ota::NativeFirmwareEnd___STATIC__BOOLEAN,
@@ -72,6 +74,8 @@ static const CLR_RT_MethodHandler method_lookup[] =
     Library_interoplib_interoplib_Ota::NativeConfirm___STATIC__BOOLEAN,
     Library_interoplib_interoplib_Ota::NativeGetState___STATIC__U1,
     Library_interoplib_interoplib_Ota::NativeIsPendingConfirm___STATIC__BOOLEAN,
+    Library_interoplib_interoplib_Ota::NativeReadRunningFirmware___STATIC__I4__I4__SZARRAY_U1__I4,
+    Library_interoplib_interoplib_Ota::NativeReadDeploy___STATIC__I4__I4__SZARRAY_U1__I4,
     NULL,
     NULL,
     NULL,
@@ -84,7 +88,7 @@ static const CLR_RT_MethodHandler method_lookup[] =
 const CLR_RT_NativeAssemblyData g_CLR_AssemblyNative_interoplib =
 {
     "interoplib",
-    0x90CDD413,
+    0x8BC1353F,
     method_lookup,
     { 2, 0, 0, 0 }
 };

@@ -44,6 +44,10 @@ namespace interoplib
 
             static bool NativeIsPendingConfirm(  HRESULT &hr );
 
+            static signed int NativeReadRunningFirmware( signed int param0, CLR_RT_TypedArray_UINT8 param1, signed int param2, HRESULT &hr );
+
+            static signed int NativeReadDeploy( signed int param0, CLR_RT_TypedArray_UINT8 param1, signed int param2, HRESULT &hr );
+
         };
     }
 }

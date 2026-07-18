@@ -94,3 +94,31 @@ bool Ota::NativeIsPendingConfirm(HRESULT &hr)
     (void)hr;
     return NF_Ota_IsPendingConfirm();
 }
+
+// LEDTREES: чтение собственных разделов для раздачи bundle из разделов
+// (PartitionBundle): clr-секция артефакта = работающий ota-слот, managed-секция =
+// deploy-раздел. Чтение флеши, в отличие от записи, XIP не останавливает —
+// раздача при играющей ленте безопасна. Возврат: count либо -1 (нет раздела /
+// выход за раздел / ошибка чтения); битые параметры — исключение.
+
+signed int Ota::NativeReadRunningFirmware(signed int param0, CLR_RT_TypedArray_UINT8 param1, signed int param2, HRESULT &hr)
+{
+    if (param1.GetBuffer() == NULL || param0 < 0 || param2 <= 0 || (uint32_t)param2 > param1.GetSize())
+    {
+        hr = CLR_E_INVALID_PARAMETER;
+        return -1;
+    }
+
+    return NF_Ota_ReadRunningFirmware((uint32_t)param0, param1.GetBuffer(), (uint32_t)param2);
+}
+
+signed int Ota::NativeReadDeploy(signed int param0, CLR_RT_TypedArray_UINT8 param1, signed int param2, HRESULT &hr)
+{
+    if (param1.GetBuffer() == NULL || param0 < 0 || param2 <= 0 || (uint32_t)param2 > param1.GetSize())
+    {
+        hr = CLR_E_INVALID_PARAMETER;
+        return -1;
+    }
+
+    return NF_Ota_ReadDeploy((uint32_t)param0, param1.GetBuffer(), (uint32_t)param2);
+}

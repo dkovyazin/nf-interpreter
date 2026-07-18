@@ -167,3 +167,45 @@ HRESULT Library_interoplib_interoplib_Ota::NativeIsPendingConfirm___STATIC__BOOL
     }
     NANOCLR_NOCLEANUP();
 }
+
+HRESULT Library_interoplib_interoplib_Ota::NativeReadRunningFirmware___STATIC__I4__I4__SZARRAY_U1__I4( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        signed int param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_INT32( stack, 0, param0 ) );
+
+        CLR_RT_TypedArray_UINT8 param1;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8_ARRAY( stack, 1, param1 ) );
+
+        signed int param2;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_INT32( stack, 2, param2 ) );
+
+        signed int retValue = Ota::NativeReadRunningFirmware( param0, param1, param2, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        SetResult_INT32( stack, retValue );
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_Ota::NativeReadDeploy___STATIC__I4__I4__SZARRAY_U1__I4( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        signed int param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_INT32( stack, 0, param0 ) );
+
+        CLR_RT_TypedArray_UINT8 param1;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8_ARRAY( stack, 1, param1 ) );
+
+        signed int param2;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_INT32( stack, 2, param2 ) );
+
+        signed int retValue = Ota::NativeReadDeploy( param0, param1, param2, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        SetResult_INT32( stack, retValue );
+    }
+    NANOCLR_NOCLEANUP();
+}
