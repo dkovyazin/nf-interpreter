@@ -156,3 +156,8 @@ CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=16
 CONFIG_ESP_TIMER_ISR_AFFINITY=0x1
 CONFIG_MBEDTLS_ECP_FIXED_POINT_OPTIM=y
 CONFIG_LOG_COLORS=y
+# Приостановка erase/write флеши при обращении к XIP: без неё стирание сектора
+# замораживает исполнение кода из флеши на десятки мс, и потоковая установка
+# OTA дёргает LED-анимацию весь приём. Требует чипа с suspend/resume —
+# на неподдерживающем чипе IDF просто не включает механизм.
+CONFIG_SPI_FLASH_AUTO_SUSPEND=y
