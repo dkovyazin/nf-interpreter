@@ -50,3 +50,24 @@ HRESULT Library_interoplib_interoplib_Utilities::NativeCrc32___STATIC__U4__U4__S
     }
     NANOCLR_NOCLEANUP();
 }
+
+HRESULT Library_interoplib_interoplib_Utilities::NativeSdProbe___STATIC__I4__U1__U2__SZARRAY_U1( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        uint8_t param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 0, param0 ) );
+
+        uint16_t param1;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT16( stack, 1, param1 ) );
+
+        CLR_RT_TypedArray_UINT8 param2;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8_ARRAY( stack, 2, param2 ) );
+
+        signed int retValue = Utilities::NativeSdProbe( param0, param1, param2, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        SetResult_INT32( stack, retValue );
+    }
+    NANOCLR_NOCLEANUP();
+}

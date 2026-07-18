@@ -53,6 +53,7 @@ struct Library_interoplib_interoplib_LedPixelController
     NANOCLR_NATIVE_DECLARE(NativeSetPixel___STATIC__VOID__U1__U2__U1__U1__U1);
     NANOCLR_NATIVE_DECLARE(NativeGetPlayPosition___STATIC__I4);
     NANOCLR_NATIVE_DECLARE(NativeSyncPlayPosition___STATIC__I4__U2);
+    NANOCLR_NATIVE_DECLARE(NativeGetFeedReadErrors___STATIC__I4);
 
     //--//
 };
@@ -80,6 +81,7 @@ struct Library_interoplib_interoplib_Utilities
 
     NANOCLR_NATIVE_DECLARE(NativeGetBaseMac___STATIC__VOID__SZARRAY_U1);
     NANOCLR_NATIVE_DECLARE(NativeCrc32___STATIC__U4__U4__SZARRAY_U1__I4__I4);
+    NANOCLR_NATIVE_DECLARE(NativeSdProbe___STATIC__I4__U1__U2__SZARRAY_U1);
 
     //--//
 };

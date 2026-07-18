@@ -239,3 +239,15 @@ HRESULT Library_interoplib_interoplib_LedPixelController::NativeSyncPlayPosition
     }
     NANOCLR_NOCLEANUP();
 }
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeGetFeedReadErrors___STATIC__I4( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        signed int retValue = LedPixelController::NativeGetFeedReadErrors(  hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        SetResult_INT32( stack, retValue );
+    }
+    NANOCLR_NOCLEANUP();
+}

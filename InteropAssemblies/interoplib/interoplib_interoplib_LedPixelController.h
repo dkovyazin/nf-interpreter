@@ -44,6 +44,8 @@ namespace interoplib
 
             static signed int NativeSyncPlayPosition( uint16_t param0, HRESULT &hr );
 
+            static signed int NativeGetFeedReadErrors(  HRESULT &hr );
+
         };
     }
 }

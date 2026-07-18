@@ -26,6 +26,8 @@ namespace interoplib
 
             static unsigned int NativeCrc32( unsigned int param0, CLR_RT_TypedArray_UINT8 param1, signed int param2, signed int param3, HRESULT &hr );
 
+            static signed int NativeSdProbe( uint8_t param0, uint16_t param1, CLR_RT_TypedArray_UINT8 param2, HRESULT &hr );
+
         };
     }
 }

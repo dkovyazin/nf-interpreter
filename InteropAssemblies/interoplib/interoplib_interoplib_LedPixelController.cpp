@@ -165,6 +165,12 @@ static volatile bool SOURCE_DIRTY = false;        // путь сменился �
 // нельзя — иначе первые ~50 кадров идут вперемешку.
 static volatile uint32_t SOURCE_GENERATION = 0;
 
+// Ошибки чтения подкормки с SD за время работы (не открылся файл, сорвался
+// fseek/fread). Никогда не сбрасывается: спорадика плохого контакта должна
+// оставаться видимой (managed включает её в отчёт регистрации), даже если
+// прямо сейчас чтение идёт нормально. Читается NativeGetFeedReadErrors.
+static volatile int32_t FEED_READ_ERRORS = 0;
+
 // managed-путь ("D:\programs-cache\103.4.dat") в VFS-путь ("/D/programs-cache/103.4.dat"):
 // SD монтируется как "/D" (targets/ESP32/_common/Target_System_IO_FileSystem.c — там
 // буква диска ровно так же переписывается в точку монтирования).
@@ -315,6 +321,7 @@ static void FeedFrames(FILE** file, uint32_t fromFrame)
         *file = fopen(path, "rb");
         if (*file == NULL) {
             ESP_LOGE("interoplib", "feed: не открыть %s", path);
+            FEED_READ_ERRORS = FEED_READ_ERRORS + 1;
             return;
         }
     }
@@ -358,6 +365,7 @@ static void FeedFrames(FILE** file, uint32_t fromFrame)
         // подряд идущие кадры читаются без лишних обращений к FATFS
         if (offset != expectedPos && fseek(*file, offset, SEEK_SET) != 0) {
             ESP_LOGE("interoplib", "feed: fseek %ld", offset);
+            FEED_READ_ERRORS = FEED_READ_ERRORS + 1;
             fclose(*file);
             *file = NULL;
             return;
@@ -374,6 +382,7 @@ static void FeedFrames(FILE** file, uint32_t fromFrame)
         size_t want = (size_t)chunk * frameSize;
         if (fread(readDst, 1, want, *file) != want) {
             ESP_LOGE("interoplib", "feed: кадр %u не дочитан", (unsigned)frame);
+            FEED_READ_ERRORS = FEED_READ_ERRORS + 1;
             fclose(*file);
             *file = NULL;
             return;
@@ -501,6 +510,12 @@ signed int LedPixelController::NativeGetPlayPosition( HRESULT &hr )
 {
     hr = S_OK;
     return CURRENT_PROGRAM_FRAME;
+}
+
+signed int LedPixelController::NativeGetFeedReadErrors( HRESULT &hr )
+{
+    hr = S_OK;
+    return FEED_READ_ERRORS;
 }
 
 // Мёртвая зона подгонки фазы: сама сводка на MAIN точна до ±1–2 кадров
