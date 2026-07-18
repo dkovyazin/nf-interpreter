@@ -75,9 +75,21 @@ static volatile uint8_t CURRENT_PLAY_BUFFER = 1; // какой из PROGRAMx_BUF
 static volatile bool running = false;
 
 // Текущий кадр программы от задачи вывода (реальная позиция ленты, в замирании
-// подкормки не растёт); -1 — воспроизведение не идёт. Читается managed-кодом
+// подкормки не растёт); -1 — воспроизведение не идёт. Координаты — кадры самой
+// программы, якорь вступления (SOURCE_START_FRAME) уже учтён, поэтому позиции
+// узлов сравнимы между собой напрямую. Читается managed-кодом
 // (NativeGetPlayPosition) для сводки синхронности узлов на MAIN.
 static volatile int32_t CURRENT_PROGRAM_FRAME = -1;
+
+// На сколько кадров группа впереди нас (＜0 — мы убежали вперёд). Источники:
+// замирание подкормки, хвост просрочки за границей пачки и ре-якорь SyncPlay
+// (NativeSyncPlayPosition, поток CLR). Гасится задачей вывода: пропуском из
+// свежей пачки на свопе и плавной подтяжкой ±1 кадр за виток. Часть
+// чтений-изменений идёт вне bodySemaphore (хвост цикла вывода) — гонка со
+// записью из SyncPlay может потерять единицы кадров, это осознанно: значение
+// корректирующее, следующий ре-якорь (раз в ~5 с) перепишет его свежей мерой.
+static volatile int32_t BEHIND_FRAMES = 0;
+
 static volatile bool requestedForStop = false;
 static SemaphoreHandle_t bodySemaphore = NULL;
 static SemaphoreHandle_t joinSemaphore = NULL;
@@ -145,7 +157,7 @@ static char SOURCE_PATH[160] = {0};               // VFS-путь ("/D/..."), ""
 static uint32_t SOURCE_HEADER = 0;                // размер заголовка файла кэша
 static uint16_t SOURCE_FRAME_SIZE = 0;
 static uint16_t SOURCE_COUNT_FRAMES = 0;
-static uint16_t SOURCE_START_FRAME = 0;           // сдвиг фазы устройства в сборке
+static uint16_t SOURCE_START_FRAME = 0;           // якорь вступления из BeginPlay (кадр группы)
 static volatile bool SOURCE_DIRTY = false;        // путь сменился — переоткрыть
 
 // Растёт на каждый SetSource. Смена программы обязана отменить пачку, читающуюся под
@@ -284,7 +296,7 @@ static void FeedFrames(FILE** file, uint32_t fromFrame)
 {
     char path[sizeof(SOURCE_PATH)];
     uint32_t header, generation;
-    uint16_t frameSize, countFrames, startFrame;
+    uint16_t frameSize, countFrames;
 
     // Снимок под семафором: SetSource пишет эти поля из потока CLR.
     // Файл к этому моменту уже закрыт обработчиком, если источник менялся.
@@ -294,7 +306,6 @@ static void FeedFrames(FILE** file, uint32_t fromFrame)
     header = SOURCE_HEADER;
     frameSize = SOURCE_FRAME_SIZE;
     countFrames = SOURCE_COUNT_FRAMES;
-    startFrame = SOURCE_START_FRAME;
     CS_END(sourceSemaphore);
 
     if (path[0] == 0 || countFrames == 0 || frameSize == 0)
@@ -308,9 +319,9 @@ static void FeedFrames(FILE** file, uint32_t fromFrame)
         }
     }
 
-    // Сдвиг на startFrame — фаза устройства в сборке: программа закольцована, поэтому
-    // подкормка со сдвигом тождественна старту с этого кадра.
-    uint32_t frame = (fromFrame + startFrame) % countFrames;
+    // fromFrame уже в кадрах программы: якорь вступления учтён задачей вывода
+    // в стартовых координатах буфера, второй сдвиг здесь удвоил бы фазу.
+    uint32_t frame = fromFrame % countFrames;
     long expectedPos = -1;
 
     // Пишем в буфер, который сейчас не играет.
@@ -490,6 +501,51 @@ signed int LedPixelController::NativeGetPlayPosition( HRESULT &hr )
 {
     hr = S_OK;
     return CURRENT_PROGRAM_FRAME;
+}
+
+// Мёртвая зона подгонки фазы: сама сводка на MAIN точна до ±1–2 кадров
+// (регистрация раз в секунду, UDP-джиттер, квантование тиков) — гоняться за
+// расхождением такого масштаба значит дёргать фазу впустую.
+#define SYNC_DEADBAND_FRAMES 2
+
+// Ре-якорь SyncPlay: сверить свою позицию с кадром, который группа играет прямо
+// сейчас, и при расхождении назначить коррекцию (BEHIND_FRAMES) — задача вывода
+// рассосёт её плавной подтяжкой. Возвращает назначенную коррекцию в кадрах;
+// 0 — в фазе либо очень близкая коррекция уже идёт.
+signed int LedPixelController::NativeSyncPlayPosition( uint16_t groupFrame, HRESULT &hr )
+{
+    hr = S_OK;
+
+    int32_t applied = 0;
+
+    CS_BEGIN(bodySemaphore);
+
+    int32_t position = CURRENT_PROGRAM_FRAME;
+    uint16_t countFrames = params.countFrames;
+
+    if (running && position >= 0 && countFrames > 0) {
+        // кольцевая разница (−count/2 .. +count/2]: >0 — группа впереди, догоняем
+        int32_t diff = (int32_t)(groupFrame % countFrames) - position;
+        int32_t half = countFrames / 2;
+        if (diff > half)
+            diff -= countFrames;
+        else if (diff < -half)
+            diff += countFrames;
+
+        // Уже назначенную коррекцию не перетираем, пока свежая мера отличается от
+        // неё в пределах мёртвой зоны: замирание копит BEHIND_FRAMES само, и якорь,
+        // намеривший то же самое, не должен сбрасывать счёт из-за джиттера.
+        int32_t pending = BEHIND_FRAMES;
+        int32_t delta = diff - pending;
+        if (delta > SYNC_DEADBAND_FRAMES || delta < -SYNC_DEADBAND_FRAMES) {
+            BEHIND_FRAMES = diff;
+            applied = diff;
+        }
+    }
+
+    CS_END(bodySemaphore);
+
+    return applied;
 }
 
 void LedPixelController::NativePrepareForPlay( uint16_t frame, CLR_RT_TypedArray_UINT8 data, HRESULT &hr )
@@ -690,6 +746,7 @@ void LedTask_Start(uint16_t countFrames, uint8_t fps, uint16_t transition)
         // взведённым, если прошлый Stop сработал по уже вышедшей задаче.
         running = true;
         requestedForStop = false;
+        BEHIND_FRAMES = 0; // коррекции прошлой программы новой не принадлежат
 
         // core 1: вывод кадров не должен делить ядро с подкормкой и её SD-чтением
         xTaskCreatePinnedToCore(
@@ -731,23 +788,67 @@ void LedTask_Handler( void * pvParameters )
 {
     LedTaskParams* taskParams = (LedTaskParams*) pvParameters;
 
+    // Кадр вступления (якорь BeginPlay) и признак заякоренного входа длинной
+    // программы. PREPARE-буфер длинной готовился managed'ом ДО прихода якоря, с
+    // кадра 0 — играть его значит ~2 с показывать чужой кусок программы. Вместо
+    // этого сразу заказываем пачку с якорного кадра и замираем до её прихода
+    // (обычно 150–250 мс чтения SD): замирание копит BEHIND_FRAMES, навёрстывание
+    // на свопе съедает их — лента вступает точно в фазу группы. Обычный групповой
+    // старт (якорь 0) играет PREPARE сразу, как раньше.
+    const uint16_t entryStartFrame = taskParams->countFrames > 0
+        ? (uint16_t)(SOURCE_START_FRAME % taskParams->countFrames)
+        : (uint16_t)0;
+    const bool anchoredLongEntry = taskParams->countFrames > BUFFER_FRAMES_COUNT
+        && entryStartFrame != 0
+        && FeedTask != NULL;
+
+    // Фейд заякоренного входа откладывается до первой пачки: его цель — первый
+    // реальный кадр — до неё неизвестна (см. блок отложенного фейда в цикле).
+    bool pendingEntryTransition = false;
+
     uint16_t transitionTime = taskParams->transition;
     if (1000 / taskParams->fps < transitionTime) {
         transitionFrame.length = transitionTime / (1000 / PROGRAM_TRANSITION_FPS);
         transitionFrame.length += 1; // for first frame of next program
         transitionFrame.current = 0;
 
-        memcpy(transitionFrame.to, PREPARE_BUFFERS, FRAME_SIZE);
-        memcpy(transitionFrame.from, lastRawFrame, FRAME_SIZE);
+        if (anchoredLongEntry) {
+            pendingEntryTransition = true;
+        } else {
+            // Цель фейда — кадр, который реально заиграет первым: у короткой
+            // программы (вся в буфере) это кадр вступления, не кадр 0; у длинной
+            // без якоря — начало PREPARE-буфера.
+            size_t firstFrameOffset = 0;
+            if (taskParams->countFrames > 0 && taskParams->countFrames <= BUFFER_FRAMES_COUNT)
+                firstFrameOffset = (size_t)entryStartFrame * FRAME_SIZE;
+
+            memcpy(transitionFrame.to, PREPARE_BUFFERS + firstFrameOffset, FRAME_SIZE);
+            memcpy(transitionFrame.from, lastRawFrame, FRAME_SIZE);
+        }
     } else
         transitionFrame.length = 0;
 
     CS_BEGIN(bodySemaphore);
     // running=true уже выставил LedTask_Start (до создания задачи — иначе гейт
     // «if (!running)» дыряв и второй StartPlay плодил задачу-зомби)
-    const TickType_t programTimeIncrement = 1000.0 / taskParams->fps / portTICK_PERIOD_MS;
+    //
+    // Темп кадров. Период 1000/fps редко кратен тику: 24 fps при тике 10 мс — это
+    // 41.67 мс, а усечённый до целых тиков период (40 мс) гнал бы ленту на +4%
+    // быстрее номинала. Между собой узлы от этого не расходятся (усечение у всех
+    // одно), но якорь кадра MAIN считает по номинальному fps — и промахивался бы
+    // тем сильнее, чем дольше играет программа к моменту вступления узла. Целые
+    // тики отдаём xTaskDelayUntil, дробный остаток добирает аккумулятор Брезенхэма:
+    // часть периодов на тик длиннее, средний темп — точно fps.
+    // fps выше частоты тиков не воспроизвести — зажимаем, иначе периоды в 0 тиков
+    // (для xTaskDelayUntil это assert).
+    const TickType_t ticksPerSecond = configTICK_RATE_HZ;
+    const uint16_t pacingFps = taskParams->fps < ticksPerSecond ? taskParams->fps : (uint16_t)ticksPerSecond;
+    const TickType_t programBaseTicks = ticksPerSecond / pacingFps;
+    const uint16_t programTicksRemainder = (uint16_t)(ticksPerSecond % pacingFps);
     const TickType_t transitionTimeIncrement = 1000.0 / PROGRAM_TRANSITION_FPS / portTICK_PERIOD_MS;
     CS_END(bodySemaphore);
+
+    uint16_t programTicksAcc = 0; // доли тика: числитель, знаменатель pacingFps
 
 	TickType_t lastWakeTime = xTaskGetTickCount();
 
@@ -774,11 +875,42 @@ void LedTask_Handler( void * pvParameters )
     // Кадр программы, лежащий в начале текущего буфера, и кадр, с которого заказана
     // следующая пачка. Сквозной счётчик выведенных кадров тут не годится: в замирании
     // лента стоит, а он бы убегал — и пачка заказывалась бы не с того места.
+    //
+    // Счёт — в кадрах ПРОГРАММЫ, от якоря вступления (BeginPlay мог включить нас в
+    // уже играющую группу): длинной программе якорь задаёт старт координат пачек,
+    // короткой (вся в буфере, подкормки нет) — стартовый индекс в кольце буфера.
+    // Так CURRENT_PROGRAM_FRAME честен для обоих путей, а подкормка получает запросы
+    // сразу в кадрах программы. Оговорка: первый буфер длинной программы managed
+    // готовил до прихода якоря, с кадра 0, — до первого свопа лента играет начало
+    // программы, хотя позиция уже рапортуется от якоря. SOURCE_START_FRAME здесь
+    // читается без семафора: SetSource строго предшествует StartPlay.
     uint32_t bufferStartFrame = 0;
     uint32_t nextBufferFrame = 0;
 
     uint16_t bufferFrameIndex = 0;
+    if (taskParams->countFrames <= BUFFER_FRAMES_COUNT)
+        bufferFrameIndex = entryStartFrame;
+    else
+        bufferStartFrame = entryStartFrame;
+
     uint16_t stallTicks = 0;
+
+    // Пачка для текущего буфера уже заказана. Раньше заказ висел на условии
+    // «index == 0», и оно срабатывало один раз на буфер — advance был всегда ≥1.
+    // Придержка кадра (slew −1) теперь может держать индекс на нуле много витков,
+    // и без флага каждый из них заново сбрасывал бы BUFFERED_FRAMES (выбрасывая
+    // уже приехавшую пачку) и гонял FeedTask перечитывать её с SD.
+    bool feedRequested = false;
+
+    // Заякоренный вход: PREPARE-буфер объявляем доигранным и сразу заказываем
+    // пачку с якоря — до её прихода цикл штатно замирает (см. комментарий выше).
+    if (anchoredLongEntry) {
+        BUFFERED_FRAMES = -1;
+        bufferFrameIndex = bufferFramesCount;
+        nextBufferFrame = bufferStartFrame;
+        feedRequested = true;
+        xTaskNotify(FeedTask, FEED_REQ(myGeneration, nextBufferFrame), eSetValueWithOverwrite);
+    }
     while (1) {
         CS_BEGIN(bodySemaphore);
 
@@ -794,6 +926,10 @@ void LedTask_Handler( void * pvParameters )
             else if (BUFFERED_FRAMES != -1 && BUFFERED_FROM == (int32_t)nextBufferFrame) {
                 // Свопаем только на ту пачку, которую ждём: прийти могла и лишняя —
                 // повторный запрос из слота заставляет задачу перечитать пачку.
+                //
+                // Хвост просрочки за границей пачки (index > count) — в навёрстывание:
+                // обнуление индекса иначе съедало бы фазу перескока, как раньше.
+                BEHIND_FRAMES = BEHIND_FRAMES + (int32_t)(bufferFrameIndex - bufferFramesCount);
                 bufferFrameIndex = 0;
                 stallTicks = 0;
 
@@ -808,6 +944,7 @@ void LedTask_Handler( void * pvParameters )
 
                 bufferFramesCount = BUFFERED_FRAMES;
                 bufferStartFrame = nextBufferFrame;
+                feedRequested = false; // новому буферу — свой заказ продолжения
             }
             else {
                 // Пачка не приехала — замираем на последнем кадре, как буферизация
@@ -818,8 +955,11 @@ void LedTask_Handler( void * pvParameters )
             }
         }
 
-        // Начало буфера: первый кадр таска или первый кадр после свопа.
-        if (!stalled && bufferFrameIndex == 0) {
+        // Начало буфера: первый кадр таска или первый кадр после свопа. Ровно
+        // один раз на буфер (feedRequested) — индекс может гостить на нуле и
+        // дольше витка, см. придержку кадра.
+        if (!stalled && bufferFrameIndex == 0 && !feedRequested) {
+            feedRequested = true;
             BUFFERED_FRAMES = -1; // -1 = следующая пачка ещё не приехала
 
             if (taskParams->countFrames > BUFFER_FRAMES_COUNT && FeedTask != NULL) {
@@ -839,8 +979,30 @@ void LedTask_Handler( void * pvParameters )
                 xTaskNotify(FeedTask, FEED_REQ(myGeneration, nextBufferFrame), eSetValueWithOverwrite);
         }
 
+        // Навёрстывание после замирания: кадры, пролежавшие в ожидании пачки, группа
+        // уже отыграла — пропускаем их из свежей пачки и возвращаемся в фазу, а не
+        // тащим отставание до конца программы. Дальше конца пачки не прыгаем (её
+        // продолжение только что заказано выше); если замирание было дольше пачки,
+        // излишек переносится и догорает на следующих свопах.
+        if (!stalled && bufferFrameIndex == 0 && BEHIND_FRAMES > 0) {
+            uint16_t skip = (uint32_t)BEHIND_FRAMES < bufferFramesCount
+                ? (uint16_t)BEHIND_FRAMES
+                : (uint16_t)(bufferFramesCount - 1);
+            bufferFrameIndex = skip;
+            BEHIND_FRAMES = BEHIND_FRAMES - skip;
+        }
+
         if (buffer == NULL)
             break;
+
+        // Отложенный фейд заякоренного входа: цель — первый реальный кадр
+        // приехавшей пачки (уже с учётом навёрстывания выше); from — то, что
+        // лента показывала в ожидании (последний кадр прежней программы/чернота).
+        if (pendingEntryTransition && !stalled) {
+            pendingEntryTransition = false;
+            memcpy(transitionFrame.to, buffer + bufferFrameIndex * FRAME_SIZE, FRAME_SIZE);
+            memcpy(transitionFrame.from, lastRawFrame, FRAME_SIZE);
+        }
 
         // передаём кадр на ленту
         int offset = bufferFrameIndex * FRAME_SIZE;
@@ -850,15 +1012,45 @@ void LedTask_Handler( void * pvParameters )
         if (!stalled)
             CURRENT_PROGRAM_FRAME = (int32_t)((bufferStartFrame + bufferFrameIndex) % taskParams->countFrames);
 
-        TickType_t xTimeIncrement = transitionTimeIncrement;
+        bool programPace = true;
         if (stalled) {
             // lastRawFrame не трогаем — на ленту снова уходит последний кадр. Именно
             // шлём, а не молчим: в замирании должен работать SetBrightness.
-            xTimeIncrement = programTimeIncrement;
         }
-        else if (!transitionFrame.getNextFrame(lastRawFrame)) {
+        else if (transitionFrame.getNextFrame(lastRawFrame)) {
+            programPace = false; // переход живёт своим темпом (PROGRAM_TRANSITION_FPS)
+        }
+        else {
             memcpy(lastRawFrame, buffer + offset, FRAME_SIZE);
-            xTimeIncrement = programTimeIncrement;
+        }
+
+        TickType_t xTimeIncrement;
+        if (programPace) {
+            xTimeIncrement = programBaseTicks;
+            programTicksAcc += programTicksRemainder;
+            if (programTicksAcc >= pacingFps) {
+                programTicksAcc -= pacingFps;
+                xTimeIncrement++;
+            }
+        }
+        else
+            xTimeIncrement = transitionTimeIncrement;
+
+        // Плавная подтяжка фазы к группе (ре-якорь SyncPlay и остатки замираний):
+        // отстаём — шагаем по два кадра за период, убежали вперёд — придерживаем
+        // кадр. ±1 кадр за виток глазу не виден, отставание в секунду
+        // рассасывается за секунду. Не в замирании (позиция и так стоит) и не в
+        // переходе (там чужой темп, а фаза программы ещё не видна на ленте).
+        int slewStep = 0;
+        if (!stalled && programPace) {
+            if (BEHIND_FRAMES > 0) {
+                slewStep = 1;
+                BEHIND_FRAMES = BEHIND_FRAMES - 1;
+            }
+            else if (BEHIND_FRAMES < 0) {
+                slewStep = -1;
+                BEHIND_FRAMES = BEHIND_FRAMES + 1;
+            }
         }
 
         for (int i = 0; i < BUFF_SIZE; i++)
@@ -888,9 +1080,12 @@ void LedTask_Handler( void * pvParameters )
             lastWakeTime += skippedPeriods * step;
         }
 
-        // в замирании индекс не двигаем: буфер доигран, ждём пачку
+        // в замирании индекс не двигаем: буфер доигран, ждём пачку — но время
+        // группы идёт, и потерянные кадры копим для навёрстывания после свопа
         if (!stalled)
-            bufferFrameIndex += (uint16_t)(1 + skippedPeriods);
+            bufferFrameIndex = (uint16_t)(bufferFrameIndex + 1 + skippedPeriods + slewStep);
+        else
+            BEHIND_FRAMES = BEHIND_FRAMES + (int32_t)(1 + skippedPeriods);
     }
 
     CS_BEGIN(bodySemaphore);

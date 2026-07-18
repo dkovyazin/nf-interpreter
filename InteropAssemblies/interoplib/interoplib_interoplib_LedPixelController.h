@@ -39,12 +39,18 @@ namespace interoplib
             static void NativeSetFull( uint8_t param0, uint8_t param1, uint8_t param2, uint16_t param3, HRESULT &hr );
 
             static void NativeSetPixel( uint8_t param0, uint16_t param1, uint8_t param2, uint8_t param3, uint8_t param4, HRESULT &hr );
-            static signed int NativeGetPlayPosition( HRESULT &hr );
+
+            static signed int NativeGetPlayPosition(  HRESULT &hr );
+
+            static signed int NativeSyncPlayPosition( uint16_t param0, HRESULT &hr );
 
         };
     }
 }
 
+// LEDTREES: ручные декларации поверх генерата — задачи вывода/подкормки и SPI.
+// При обновлении файла из Stubs (регенерация после правки managed interoplib)
+// этот блок надо сохранять.
 void LedTask_Start(uint16_t countFrames, uint8_t fps, uint16_t transition);
 void LedTask_Stop();
 void LedTask_Join();
