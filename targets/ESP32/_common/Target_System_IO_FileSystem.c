@@ -45,6 +45,12 @@ static const char *TAG = "SDCard";
 
 sdmmc_card_t *card;
 
+// Буква тома, под которой смонтирована карта из card (0 — не смонтирована).
+// card один на всю систему, а слотов может быть несколько: без этой привязки
+// потребитель не отличит «свой» том от чужого и отдал бы для второго слота
+// характеристики первой карты.
+char cardDriveLetter;
+
 //
 //  Unmount SD card ( MMC/SDIO or SPI)
 //
@@ -62,6 +68,7 @@ bool Storage_UnMountSDCard(int driveIndex)
     }
 
     card = NULL;
+    cardDriveLetter = 0;
 
     return true;
 }
@@ -210,7 +217,16 @@ bool Storage_MountMMC(bool bit1Mode, int driveIndex)
         errCode = esp_vfs_fat_sdmmc_mount(mountPoint, &host, &slot_config, &mount_config, &card);
     }
 
-    return LogMountResult(errCode);
+    if (!LogMountResult(errCode))
+    {
+        return false;
+    }
+
+    // буква запоминается только при успехе: после отказа card невалиден и
+    // привязывать к нему том нельзя
+    cardDriveLetter = INDEX0_DRIVE_LETTER[0] + driveIndex;
+
+    return true;
 }
 #endif
 
@@ -265,7 +281,16 @@ bool Storage_MountSpi(int spiBus, uint32_t csPin, int driveIndex)
         errCode = esp_vfs_fat_sdspi_mount(mountPoint, &host, &slot_config, &mount_config, &card);
     }
 
-    return LogMountResult(errCode);
+    if (!LogMountResult(errCode))
+    {
+        return false;
+    }
+
+    // буква запоминается только при успехе: после отказа card невалиден и
+    // привязывать к нему том нельзя
+    cardDriveLetter = INDEX0_DRIVE_LETTER[0] + driveIndex;
+
+    return true;
 }
 
 #endif

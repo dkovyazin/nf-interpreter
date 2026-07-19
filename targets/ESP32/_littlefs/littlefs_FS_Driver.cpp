@@ -11,6 +11,18 @@
 #include <esp_memory_utils.h>
 #include <stdio.h>
 
+#if (HAL_USE_SDC == TRUE)
+#include <sdmmc_cmd.h>
+
+// Смонтированная карта из Target_System_IO_FileSystem.c: её CSD прочитан при
+// монтировании, поэтому ёмкость достаётся оттуда мгновенно — в отличие от
+// расчёта по FAT, который упирается в f_getfree() (см. GetSizeInfo).
+// cardDriveLetter — том, которому эта карта принадлежит: card один на систему,
+// и без сверки второй слот получил бы характеристики первой карты.
+extern "C" sdmmc_card_t *card;
+extern "C" char cardDriveLetter;
+#endif
+
 extern FileSystemVolume *g_FS_Volumes;
 
 static int32_t RemoveAllFiles(const char *path);
@@ -112,36 +124,36 @@ HRESULT LITTLEFS_FS_Driver::Format(const VOLUME_ID *volume, const char *volumeLa
 
 HRESULT LITTLEFS_FS_Driver::GetSizeInfo(const VOLUME_ID *volume, int64_t *totalSize, int64_t *totalFreeSpace)
 {
-    (void)totalSize;
-
-    // FATFS *fsPtr = &fs;
-    // char buffer[3];
-    // DWORD freeClusters, freeSectors, totalSectors;
-
-    // FATFS *fs = GetFatFsByVolumeId(volume, false);
-
-    // FileSystemVolume *currentVolume = FileSystemVolumeList::FindVolume(volume->volumeId);
-
-    // f_chdrive(currentVolume->m_rootName);
-
-    // // this call is prone to take a long time, thus hitting the watchdog, therefore we are skipping this for now
-    // //     // get free clusters
-    // //     f_getfree(buffer, &freeClusters, &fsPtr);
-
-    // //     // Get total sectors and free sectors
-    // //     totalSectors = (fs.n_fatent - 2) * fs.csize;
-    // //     freeSectors = freeClusters * fs.csize;
-
-    // // #if FF_MAX_SS != FF_MIN_SS
-    // //     *totalSize = (int64_t)totalSectors * fs.ssize;
-    // //     *totalFreeSpace = (int64_t)freeSectors * fs.ssize;
-    // // #else
-    // //     *totalSize = (int64_t)totalSectors * FF_MAX_SS;
-    // //     *totalFreeSpace = (int64_t)freeSectors * FF_MAX_SS;
-    // // #endif
-
+    // -1 = «неизвестно»: так это читает вызывающий (UpdateVolumeInfo кладёт
+    // ноль в managed-поле, если мы вернём ошибку, поэтому отдаём S_OK всегда).
     *totalSize = -1;
+
+    // Свободное место остаётся неизвестным намеренно: единственный путь к нему —
+    // f_getfree(), а он обходит таблицу FAT и на больших картах успевает поймать
+    // watchdog. Ёмкость карты этого обхода не требует, поэтому её отдаём.
     *totalFreeSpace = -1;
+
+#if (HAL_USE_SDC == TRUE)
+
+    // Драйвер обслуживает и внутреннюю флешь (I:/J:), у которой CSD нет, —
+    // ёмкость карты имеет смысл только для того тома, на котором она и
+    // смонтирована (слотов может быть несколько, а card один).
+    FileSystemVolume *currentVolume = FileSystemVolumeList::FindVolume(volume->volumeId);
+
+    if (currentVolume != NULL && card != NULL && cardDriveLetter != 0 &&
+        currentVolume->m_rootName[0] == cardDriveLetter)
+    {
+        // csd.capacity — число секторов, csd.sector_size — их размер: это
+        // физическая ёмкость карты (то, что написано на ней), а не ёмкость
+        // тома FAT.
+        *totalSize = (int64_t)card->csd.capacity * card->csd.sector_size;
+    }
+
+#else
+
+    (void)volume;
+
+#endif
 
     return S_OK;
 }
