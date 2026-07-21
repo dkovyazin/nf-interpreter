@@ -291,7 +291,15 @@ esp_err_t NF_ESP32_InitaliseWifi()
         esp_hosted_init();
 #endif
         // create Wi-Fi STA (ignoring return)
-        wifiStaNetif = esp_netif_create_default_wifi_sta();
+        // guard как у apStartDhcpsHandler ниже: init, упавший в одном из
+        // return'ов дальше, оставляет netif созданным при IsWifiInitialised ==
+        // false — ретрай Open заходит сюда снова и без guard'а создавал бы
+        // второй default-netif с тем же ключом (утечка + отказ attach).
+        // DeinitWifi обнуляет указатель, чистый re-init создаёт заново.
+        if (wifiStaNetif == NULL)
+        {
+            wifiStaNetif = esp_netif_create_default_wifi_sta();
+        }
 
         // Set static address if configured
         // ignore any errors
@@ -308,7 +316,11 @@ esp_err_t NF_ESP32_InitaliseWifi()
         if (expectedWifiMode & WIFI_MODE_AP)
         {
             // create AP (ignoring return)
-            wifiAPNetif = esp_netif_create_default_wifi_ap();
+            // тот же guard от повторного создания при ретрае, что и для STA
+            if (wifiAPNetif == NULL)
+            {
+                wifiAPNetif = esp_netif_create_default_wifi_ap();
+            }
 
             // Remove DHCP server flag as not configured in sdkconfig, DHCP server done in managed code
             // Otherwise startup hangs

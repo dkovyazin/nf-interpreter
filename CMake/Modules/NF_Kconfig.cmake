@@ -120,6 +120,15 @@ function(nf_load_kconfig)
     if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
         set(_buildtype_fragment "CONFIG_NF_BUILD_RTM=y\n")
     else()
+        # Пустой/нестандартный CMAKE_BUILD_TYPE молча даёт non-RTM сборку и
+        # force-снимает RTM даже там, где defconfig его включал — это законно
+        # для Debug/RelWithDebInfo, но при опечатке в пресете или multi-config
+        # генераторе downgrade прошёл бы незамеченным. Хотя бы говорим об этом.
+        if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+            message(WARNING "NF_BUILD_RTM: CMAKE_BUILD_TYPE is '${CMAKE_BUILD_TYPE}' "
+                "(not Release/MinSizeRel/Debug/RelWithDebInfo) - building WITHOUT RTM "
+                "(CLR debugger included). Set a known build type if this is a release build.")
+        endif()
         set(_buildtype_fragment "# CONFIG_NF_BUILD_RTM is not set\n")
     endif()
 
