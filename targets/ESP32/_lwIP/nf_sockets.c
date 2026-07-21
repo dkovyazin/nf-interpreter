@@ -4296,9 +4296,24 @@ lwip_socket_drop_registered_mld6_memberships(int s)
 // lwIP is clearly missing an API to get the last error from a socket
 uint32_t lwip_socket_get_err(int s)
 {
+  int err;
   struct lwip_sock *sock = get_socket(s);
+  if (sock == NULL) {
+    return EBADF;
+  }
+  // sock->err пишется единственным местом — EINPROGRESS неблокирующего
+  // connect — и событиями не обновляется: асинхронный отказ соединения
+  // (RST, abort, таймаут) оседает в netconn. Без подтяжки отсюда наверх
+  // вечно уходил бы устаревший EINPROGRESS (SocketException 10035) вместо
+  // реальной причины. netconn_err() ОЧИЩАЕТ pending-ошибку при чтении,
+  // поэтому кэшируем её в sock->err — повторные опросы возвращают то же.
+  err = err_to_errno(netconn_err(sock->conn));
+  if (err != 0) {
+    sock->err = err;
+  }
+  err = sock->err;
   done_socket(sock);
-  return sock->err;
+  return err;
 }
 // [END_NF_CHANGE]
 
