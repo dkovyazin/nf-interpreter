@@ -260,6 +260,13 @@ bool NF_Ota_FirmwareBegin(uint32_t totalSize)
 
     otaFirmwareReady = false;
 
+    // a new firmware session invalidates a dangling stage session: its binding
+    // was made against the previous slot content, and otaUpdatePartition may be
+    // nulled by a failure below - a later StageCommit would dereference NULL.
+    // An interrupted session must fail loudly, not commit against a wrong slot.
+    stagePartition = NULL;
+    stageBoundToFirmware = false;
+
     otaUpdatePartition = esp_ota_get_next_update_partition(NULL);
     if (!otaUpdatePartition)
     {
@@ -308,6 +315,14 @@ bool NF_Ota_FirmwareEnd(void)
 
 bool NF_Ota_GetRunningSha256(uint8_t sha256[32])
 {
+    // Session boundary: managed decides FULL vs LIGHT with this call before any
+    // writes, on every install path. A firmware latch surviving from a session
+    // abandoned between FirmwareEnd and StageBegin is stale by definition here -
+    // without this reset the next LIGHT StageBegin would bind its stage to the
+    // update slot, CommitFull would never run (LIGHT flow), and the update
+    // would sit stranded on a slot nobody switches to.
+    otaFirmwareReady = false;
+
     const esp_partition_t *running = esp_ota_get_running_partition();
     if (!running)
     {
@@ -419,6 +434,14 @@ bool NF_Ota_StageCommit(uint32_t crc32)
     // read back and verify
     uint32_t actualCrc;
     if (!ComputePartitionCrc(stagePartition, stageWriteOffset, &actualCrc) || actualCrc != crc32)
+    {
+        return false;
+    }
+
+    // session consistency: bound to a firmware slot that no longer exists
+    // (interleaved FirmwareBegin failure). Committing as LIGHT instead would
+    // silently drop the mandatory slot switch - refuse.
+    if (stageBoundToFirmware && !otaUpdatePartition)
     {
         return false;
     }

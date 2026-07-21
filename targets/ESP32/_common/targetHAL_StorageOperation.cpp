@@ -12,6 +12,7 @@
 #include <target_platform.h>
 #include <targetHAL_StorageOperation.h>
 #include <targetHAL_FileOperation.h>
+#include <errno.h>
 
 // Ensure Storage is initialized
 void EnsureStorageInitialized()
@@ -157,11 +158,14 @@ uint32_t HAL_StorageOperation(
         // debugger client, so a retried/reordered chunk can't duplicate data
         FILE *file = fopen(storageNameChar, "r+");
 
-        if (file == NULL)
+        if (file == NULL && errno == ENOENT)
         {
             // file does not exist yet (Append reached the firmware before a Write,
             // e.g. a lost Write reply): create it. "w+" gives the same seek+write
-            // positioning as "r+"; there is nothing to truncate on a fresh file
+            // positioning as "r+"; there is nothing to truncate on a fresh file.
+            // Gated on ENOENT: a transient IO error on an EXISTING file (SD bus
+            // glitch, fd exhaustion) must surface as WriteError - falling through
+            // to "w+" would silently truncate the file mid-upload
             file = fopen(storageNameChar, "w+");
         }
 
