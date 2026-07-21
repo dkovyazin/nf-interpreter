@@ -112,7 +112,11 @@ class Transition {
 
         bool getNextFrame(uint8_t* frameData) {
             if (current < length) {
-                for (int i = 0; i < BUFF_SIZE; ++i) {
+                // По FRAME_SIZE, не по BUFF_SIZE: frameData — это lastRawFrame,
+                // выделенный под фактический pixelCount; при меньшей ленте
+                // BUFF_SIZE писал бы за границу кучи (from/to заполняются тоже
+                // только на FRAME_SIZE).
+                for (int i = 0; i < FRAME_SIZE; ++i) {
                     uint8_t a = (current +1)*0xFF / length;
                     frameData[i] = ((from[i]*(0xFF-a) + to[i]*a))/0xFF;
                 }
@@ -533,7 +537,13 @@ signed int LedPixelController::NativeSyncPlayPosition( uint16_t groupFrame, HRES
 
     int32_t applied = 0;
 
-    CS_BEGIN(bodySemaphore);
+    // Без bodySemaphore: задача вывода держит его почти весь кадр (SPI + латч
+    // внутри секции), а в догоняющем режиме отпускает на микросекунды — ожидание
+    // здесь морозило бы все managed-потоки на секунды (та же болезнь, из-за
+    // которой LedTask_Stop переведён на флаг). Оба читаемых поля — volatile
+    // 32-битные, чтение атомарно; params.countFrames пишется только в
+    // LedTask_Start, а interop-вызовы не перекрываются. Гонка записи
+    // BEHIND_FRAMES с хвостом цикла вывода осознанна и описана у поля.
 
     int32_t position = CURRENT_PROGRAM_FRAME;
     uint16_t countFrames = params.countFrames;
@@ -557,8 +567,6 @@ signed int LedPixelController::NativeSyncPlayPosition( uint16_t groupFrame, HRES
             applied = diff;
         }
     }
-
-    CS_END(bodySemaphore);
 
     return applied;
 }
@@ -595,6 +603,15 @@ void LedPixelController::NativeStartPlay( uint16_t countFrames, uint8_t fps, uin
     }
 
     if (countFrames == 0 ||  fps < 1) {
+        hr = S_FALSE;
+        return;
+    }
+
+    // Короткой программе (вся в буфере, подкормки нет) нужен хотя бы один
+    // подготовленный кадр: закольцовка в задаче берёт модуль по PREPARED_FRAMES,
+    // и ноль там — деление на ноль и panic. Отказываем до остановки текущего
+    // воспроизведения — нечем заменить, нечего и останавливать.
+    if (countFrames <= BUFFER_FRAMES_COUNT && PREPARED_FRAMES == 0) {
         hr = S_FALSE;
         return;
     }
@@ -712,6 +729,13 @@ void LedPixelController::NativeSetPixel( uint8_t line, uint16_t cell, uint8_t re
         return;
     }
 
+    // cell — группа пикселя (12 байт), line — лента 0..3. Мимо этих границ индекс
+    // уезжает за FRAME_SIZE, а lastRawFrame ровно такого размера в куче.
+    if (line > 3 || (int)cell >= LEDS_COUNT) {
+        hr = S_FALSE;
+        return;
+    }
+
     LedTask_Stop();
     LedTask_Join();
 
@@ -763,15 +787,26 @@ void LedTask_Start(uint16_t countFrames, uint8_t fps, uint16_t transition)
         requestedForStop = false;
         BEHIND_FRAMES = 0; // коррекции прошлой программы новой не принадлежат
 
+        // Протокол join: пока задача жива, токена в joinSemaphore нет — его отдаёт
+        // только выходящая задача. Дежурный токен съедаем ДО создания, иначе give
+        // на выходе пришёлся бы на полный семафор, потерялся, и Join завис бы навсегда.
+        (void)xSemaphoreTake(joinSemaphore, 0);
+
         // core 1: вывод кадров не должен делить ядро с подкормкой и её SD-чтением
-        xTaskCreatePinnedToCore(
+        if (xTaskCreatePinnedToCore(
             LedTask_Handler,
             "LedTask",
             4096,
             (void*) &params,
             CONFIG_ESP32_PTHREAD_TASK_PRIO_DEFAULT,
             &LedTask,
-            1);
+            1) != pdPASS) {
+            // Задачи нет — некому ни выйти, ни отдать токен: откатываем оба,
+            // иначе следующий Stop/Join повиснет на portMAX_DELAY вместе со
+            // всеми managed-потоками.
+            running = false;
+            (void)xSemaphoreGive(joinSemaphore);
+        }
     }
 
     CS_END(bodySemaphore);
@@ -782,14 +817,17 @@ void LedTask_Start(uint16_t countFrames, uint8_t fps, uint16_t transition)
 // внутри секции), а после любого отставания vTaskDelayUntil гонит витки
 // вплотную (догоняющий режим) — семафор перехватывался на своём же ядре
 // быстрее, чем просыпался ожидающий CLR на другом. Флаг volatile, задача
-// читает его на каждом витке — семафор для сигнала не нужен. Конкурентных
-// вызовов со стороны managed не бывает: nanoCLR исполняет все managed-потоки
-// на одной нативной задаче, и interop-вызовы не перекрываются.
+// читает его на каждом витке — семафор для сигнала не нужен. joinSemaphore
+// здесь тоже не трогаем: его токен отдаёт только выходящая задача (дежурный
+// съеден в LedTask_Start), а забор здесь гонялся бы с этим give — задача,
+// увидевшая флаг между двумя строками, отдала бы токен в полный семафор,
+// give потерялся бы, и Join завис навсегда. Конкурентных вызовов со стороны
+// managed не бывает: nanoCLR исполняет все managed-потоки на одной нативной
+// задаче, и interop-вызовы не перекрываются.
 void LedTask_Stop()
 {
     if (running) {
         requestedForStop = true;
-        (void)xSemaphoreTake(joinSemaphore, portMAX_DELAY);
     }
 }
 
@@ -1068,7 +1106,9 @@ void LedTask_Handler( void * pvParameters )
             }
         }
 
-        for (int i = 0; i < BUFF_SIZE; i++)
+        // По FRAME_SIZE: lastRawFrame выделен под фактический pixelCount,
+        // BUFF_SIZE при меньшей ленте читал бы за границей кучи.
+        for (int i = 0; i < FRAME_SIZE; i++)
             FRAME_BUFFER[i] = lastRawFrame[i] * brightness / 0xFF;
 
         spi_send_data(FRAME_BUFFER, FRAME_SIZE);
@@ -1090,9 +1130,34 @@ void LedTask_Handler( void * pvParameters )
         // с разным фактическим fps и дрейфовали на миллисекунды в секунду.
         TickType_t skippedPeriods = 0;
         if (xTaskDelayUntil(&lastWakeTime, xTimeIncrement) == pdFALSE) {
-            const TickType_t step = xTimeIncrement > 0 ? xTimeIncrement : 1;
-            skippedPeriods = (xTaskGetTickCount() - lastWakeTime) / step;
-            lastWakeTime += skippedPeriods * step;
+            const TickType_t now = xTaskGetTickCount();
+            if (programPace) {
+                // Каждый пропущенный период проводим через тот же Bresenham-
+                // аккумулятор, что и обычный виток: заряжать все пропуски одним
+                // текущим xTimeIncrement значит терять дробную часть периода на
+                // каждом (до ~10% кадра) — темп уезжал бы от сетки группы.
+                // Инкремент коммитим только для реально пропущенного периода,
+                // недопропущенный шаг остаётся следующему витку.
+                while (1) {
+                    TickType_t step = programBaseTicks;
+                    uint16_t acc = programTicksAcc + programTicksRemainder;
+                    if (acc >= pacingFps) {
+                        acc -= pacingFps;
+                        step++;
+                    }
+                    if ((TickType_t)(now - lastWakeTime) < step)
+                        break;
+                    lastWakeTime += step;
+                    programTicksAcc = acc;
+                    skippedPeriods++;
+                }
+            }
+            else {
+                // Переход живёт своим целочисленным темпом — дробить нечего.
+                const TickType_t step = xTimeIncrement > 0 ? xTimeIncrement : 1;
+                skippedPeriods = (now - lastWakeTime) / step;
+                lastWakeTime += skippedPeriods * step;
+            }
         }
 
         // в замирании индекс не двигаем: буфер доигран, ждём пачку — но время
