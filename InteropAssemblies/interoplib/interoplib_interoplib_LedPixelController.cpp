@@ -963,15 +963,15 @@ void LedTask_Handler( void * pvParameters )
     // running=true уже выставил LedTask_Start (до создания задачи — иначе гейт
     // «if (!running)» дыряв и второй StartPlay плодил задачу-зомби)
     //
-    // Темп кадров. Период 1000/fps редко кратен тику: 24 fps при тике 10 мс — это
-    // 41.67 мс, а усечённый до целых тиков период (40 мс) гнал бы ленту на +4%
+    // Темп ВЫВОДА. Период 1000/outputFps редко кратен тику: 24 fps при тике 10 мс —
+    // это 41.67 мс, а усечённый до целых тиков период (40 мс) гнал бы ленту на +4%
     // быстрее номинала. Между собой узлы от этого не расходятся (усечение у всех
-    // одно), но якорь кадра MAIN считает по номинальному fps — и промахивался бы
-    // тем сильнее, чем дольше играет программа к моменту вступления узла. Целые
-    // тики отдаём xTaskDelayUntil, дробный остаток добирает аккумулятор Брезенхэма:
-    // часть периодов на тик длиннее, средний темп — точно fps.
-    // fps выше частоты тиков не воспроизвести — зажимаем, иначе периоды в 0 тиков
-    // (для xTaskDelayUntil это assert).
+    // одно), но темп уезжал бы от общей сетки времени группы. Целые тики отдаём
+    // xTaskDelayUntil, дробный остаток добирает аккумулятор Брезенхэма: часть
+    // периодов на тик длиннее, средний темп вывода — точно outputFps. Продвижение
+    // по кадрам (contentFps, им же считается якорь MAIN) развязано — см. блок ниже.
+    // outputFps выше частоты тиков не воспроизвести — зажимаем (pacingFps), иначе
+    // периоды в 0 тиков (для xTaskDelayUntil это assert).
     const TickType_t ticksPerSecond = configTICK_RATE_HZ;
     // Развязка темпа ВЫВОДА и продвижения по кадрам. contentFps — требуемый темп
     // контента (fps со скоростью); outputFps — темп вывода на ленту, зажатый
@@ -1185,14 +1185,13 @@ void LedTask_Handler( void * pvParameters )
         // переходе (там чужой темп, а фаза программы ещё не видна на ленте).
         int slewStep = 0;
         if (!stalled && programPace) {
-            if (BEHIND_FRAMES > 0) {
+            if (BEHIND_FRAMES > 0)
                 slewStep = 1;
-                BEHIND_FRAMES = BEHIND_FRAMES - 1;
-            }
-            else if (BEHIND_FRAMES < 0) {
+            else if (BEHIND_FRAMES < 0)
                 slewStep = -1;
-                BEHIND_FRAMES = BEHIND_FRAMES + 1;
-            }
+            // BEHIND_FRAMES списывается ниже — на ФАКТИЧЕСКИ применённый slew (после
+            // клампа netAdvance): при frameAdvance==0 придержка (−1) съедается клампом,
+            // и тратить коррекцию нельзя.
         }
 
         // Вывод через emit_frame: ремап (дизайн→факт калибровки) + яркость.
@@ -1275,6 +1274,10 @@ void LedTask_Handler( void * pvParameters )
             int netAdvance = (int)frameAdvance + slewStep;
             if (netAdvance < 0)
                 netAdvance = 0;
+            // Коррекцию фазы списываем на ФАКТИЧЕСКИ применённый slew
+            // (netAdvance − frameAdvance): если кламп съел придержку, BEHIND_FRAMES
+            // не трогаем — иначе фаза «корректировалась» бы без физического сдвига.
+            BEHIND_FRAMES = BEHIND_FRAMES - (int32_t)(netAdvance - (int)frameAdvance);
             bufferFrameIndex = (uint16_t)(bufferFrameIndex + (uint16_t)netAdvance);
         }
         else
