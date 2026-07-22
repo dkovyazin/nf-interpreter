@@ -19,6 +19,7 @@
 #include "interoplib.h"
 #include "interoplib_interoplib_LedPixelController.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"   // esp_rom_delay_us — точная короткая latch-пауза WS2812
 #include "interoplib_config.h"
 #include <driver/spi_master.h>
 #include <freertos/FreeRTOS.h>
@@ -208,13 +209,13 @@ static void ToVfsPath(const char* src, char* dst, size_t dstSize)
 
 void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, signed int clkPin, signed int csPin, signed int pixelCount, uint8_t red, uint8_t green, uint8_t blue, HRESULT &hr  )
 {
-    if (spi != NULL || pixelCount > 400) {
+    if (spi != NULL || pixelCount > MAX_PIXELS) {
         hr = S_FALSE;
         return;
     }
 
     LEDS_COUNT = pixelCount;
-    FRAME_SIZE = pixelCount * 4 * 3;
+    FRAME_SIZE = pixelCount * STRIPS_CNT * BYTES_PER_PIXEL;
 
     PREPARE_BUFFERS = new uint8_t[BUFFER_FRAMES_COUNT * FRAME_SIZE];
     PROGRAM1_BUFFERS = new uint8_t[BUFFER_FRAMES_COUNT * FRAME_SIZE];
@@ -546,7 +547,7 @@ void LedPixelController::NativeSetRemap( CLR_RT_TypedArray_UINT8 param0, HRESULT
         return;
     }
 
-    const int slots = FRAME_SIZE / 3; // физ. пиксель-триплеты (pixelCount*4)
+    const int slots = FRAME_SIZE / BYTES_PER_PIXEL; // физ. пиксель-триплеты (pixelCount*4)
     const int length = (int)param0.GetSize();
 
     // пустой массив — снять ремап
@@ -1263,11 +1264,15 @@ void spi_send_data(const uint8_t *data, int len)
     // (NativeInit), а больше кадра сюда и не приходит.
 
     // НЕ убирать: latch-пауза WS2812 — лента фиксирует кадр по тишине на линии
-    // данных, без паузы кадры сливаются в один поток. Тик (до 10 мс) заведомо
-    // покрывает требуемые ~280 мкс; вместе с передачей (~14 мс) это делает
-    // бюджет кадра тесным, и часть кадров задевает дедлайн периода — задача
-    // вывода компенсирует это пропуском целых периодов без потери темпа.
-    vTaskDelay(1);
+    // данных, без паузы кадры сливаются в один поток. Ленте нужно ~280 мкс; даём
+    // 300 мкс busy-wait'ом, а НЕ vTaskDelay(1). Прежний тик (до 10 мс) покрывал
+    // паузу с огромным запасом, но съедал ~9,7 мс из бюджета кадра: вместе с
+    // передачей (~15 мс) на полной ленте это упирало реальный потолок в ~40 fps.
+    // Короткий busy-wait оставляет упором только передачу (~15 мс) → ~60 fps на
+    // 400 px, с запасом при меньшем числе пикселей. Голодания задач нет: сама
+    // передача идёт через прерывание (задача спит ~15 мс) — yield на кадр есть и
+    // без тика; 300 мкс под bodySemaphore пренебрежимы рядом с 15 мс транзакции.
+    esp_rom_delay_us(300);
 }
 
 // Единственная точка вывода кадра на ленту: пер-нодовый ремап (дизайн→факт) +
@@ -1283,7 +1288,7 @@ static void emit_frame(const uint8_t *source)
             FRAME_BUFFER[i] = source[i] * brightness / 0xFF;
     }
     else {
-        const int slots = FRAME_SIZE / 3;
+        const int slots = FRAME_SIZE / BYTES_PER_PIXEL;
         for (int slot = 0; slot < slots; slot++) {
             uint16_t s = remap[slot];
             int d = slot * 3;
