@@ -251,3 +251,18 @@ HRESULT Library_interoplib_interoplib_LedPixelController::NativeGetFeedReadError
     }
     NANOCLR_NOCLEANUP();
 }
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeSetRemap___STATIC__VOID__SZARRAY_U1( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        CLR_RT_TypedArray_UINT8 param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8_ARRAY( stack, 0, param0 ) );
+
+        LedPixelController::NativeSetRemap( param0, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}

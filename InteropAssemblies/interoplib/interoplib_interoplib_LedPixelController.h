@@ -46,6 +46,8 @@ namespace interoplib
 
             static signed int NativeGetFeedReadErrors(  HRESULT &hr );
 
+            static void NativeSetRemap( CLR_RT_TypedArray_UINT8 param0, HRESULT &hr );
+
         };
     }
 }

@@ -65,6 +65,17 @@ static uint16_t FEED_BOUNCE_CAP = 0; // ёмкость FEED_BOUNCE, в кадр�
 static int LEDS_COUNT = 0;
 static int FRAME_SIZE = 0;
 
+// Пер-нодовый ремап (docs/node-calibration.md): на каждый физический
+// пиксель-триплет — индекс дизайн-триплета в кадре, либо REMAP_PAD (гасить в
+// чёрный). NULL — идентичность (кадр как есть), дефолт до появления калибровки.
+// Подмена — под bodySemaphore (NativeSetRemap), чтение — в emit_frame в той же
+// секции, поэтому старую таблицу можно освободить сразу после подмены.
+#define REMAP_PAD 0xFFFFu
+static uint16_t* remapTable = NULL;
+
+// Вывод кадра на ленту: ремап + яркость → FRAME_BUFFER → SPI (определение ниже).
+static void emit_frame(const uint8_t *source);
+
 // Общее у LedTask (core 1) и FeedTask (core 0), читается/пишется без блокировок —
 // отсюда volatile: иначе оптимизатору ничто не мешает закешировать их в регистре
 // на весь цикл вывода.
@@ -520,6 +531,65 @@ signed int LedPixelController::NativeGetFeedReadErrors( HRESULT &hr )
 {
     hr = S_OK;
     return FEED_READ_ERRORS;
+}
+
+// Загрузить таблицу пер-нодового ремапа (docs/node-calibration.md). Ровно
+// slots = FRAME_SIZE/3 записей ushort little-endian: индекс дизайн-триплета либо
+// REMAP_PAD. Пустой массив — снять ремап (идентичность). Битую длину/индекс
+// отвергаем, действующую таблицу не трогаем.
+void LedPixelController::NativeSetRemap( CLR_RT_TypedArray_UINT8 param0, HRESULT &hr )
+{
+    hr = S_OK;
+
+    if (spi == NULL) {
+        hr = S_FALSE;
+        return;
+    }
+
+    const int slots = FRAME_SIZE / 3; // физ. пиксель-триплеты (pixelCount*4)
+    const int length = (int)param0.GetSize();
+
+    // пустой массив — снять ремап
+    if (length == 0) {
+        CS_BEGIN(bodySemaphore);
+        uint16_t* old = remapTable;
+        remapTable = NULL;
+        CS_END(bodySemaphore);
+        if (old) heap_caps_free(old);
+        return;
+    }
+
+    // ждём ровно slots записей по 2 байта; иначе таблица не под этот кадр — отказ
+    if (length != slots * 2) {
+        hr = S_FALSE;
+        return;
+    }
+
+    uint16_t* table = (uint16_t*)heap_caps_malloc((size_t)slots * sizeof(uint16_t), MALLOC_CAP_8BIT);
+    if (table == NULL) {
+        hr = S_FALSE;
+        return;
+    }
+
+    const uint8_t* src = (const uint8_t*)param0.GetBuffer();
+    for (int i = 0; i < slots; i++) {
+        uint16_t v = (uint16_t)(src[i * 2] | (src[i * 2 + 1] << 8)); // LE
+        // индекс обязан быть в пределах кадра либо PAD — иначе таблица битая
+        if (v != REMAP_PAD && v >= (uint16_t)slots) {
+            heap_caps_free(table);
+            hr = S_FALSE;
+            return;
+        }
+        table[i] = v;
+    }
+
+    // атомарная подмена под bodySemaphore (вывод кадра идёт в той же секции):
+    // старую освобождаем только когда её уже никто не читает
+    CS_BEGIN(bodySemaphore);
+    uint16_t* old = remapTable;
+    remapTable = table;
+    CS_END(bodySemaphore);
+    if (old) heap_caps_free(old);
 }
 
 // Мёртвая зона подгонки фазы: сама сводка на MAIN точна до ±1–2 кадров
@@ -1106,12 +1176,10 @@ void LedTask_Handler( void * pvParameters )
             }
         }
 
-        // По FRAME_SIZE: lastRawFrame выделен под фактический pixelCount,
-        // BUFF_SIZE при меньшей ленте читал бы за границей кучи.
-        for (int i = 0; i < FRAME_SIZE; i++)
-            FRAME_BUFFER[i] = lastRawFrame[i] * brightness / 0xFF;
-
-        spi_send_data(FRAME_BUFFER, FRAME_SIZE);
+        // Вывод через emit_frame: ремап (дизайн→факт калибровки) + яркость.
+        // lastRawFrame — дизайн-кадр; без калибровки ремап = идентичность и это
+        // ровно прежний проход по FRAME_SIZE с яркостью.
+        emit_frame(lastRawFrame);
 
         bool exit = requestedForStop;
         requestedForStop = false;
@@ -1200,4 +1268,36 @@ void spi_send_data(const uint8_t *data, int len)
     // бюджет кадра тесным, и часть кадров задевает дедлайн периода — задача
     // вывода компенсирует это пропуском целых периодов без потери темпа.
     vTaskDelay(1);
+}
+
+// Единственная точка вывода кадра на ленту: пер-нодовый ремап (дизайн→факт) +
+// яркость → FRAME_BUFFER → SPI. source — дизайн-кадр (lastRawFrame при
+// воспроизведении). remapTable == NULL — идентичность, т.е. прежний проход по
+// FRAME_SIZE с яркостью байт-в-байт. Вызывать под bodySemaphore (как главный
+// цикл), чтобы подмена таблицы в NativeSetRemap не пересекалась с чтением.
+static void emit_frame(const uint8_t *source)
+{
+    uint16_t* remap = remapTable;
+    if (remap == NULL) {
+        for (int i = 0; i < FRAME_SIZE; i++)
+            FRAME_BUFFER[i] = source[i] * brightness / 0xFF;
+    }
+    else {
+        const int slots = FRAME_SIZE / 3;
+        for (int slot = 0; slot < slots; slot++) {
+            uint16_t s = remap[slot];
+            int d = slot * 3;
+            if (s == REMAP_PAD) {
+                FRAME_BUFFER[d] = FRAME_BUFFER[d + 1] = FRAME_BUFFER[d + 2] = 0;
+            }
+            else {
+                int b = s * 3;
+                FRAME_BUFFER[d]     = source[b]     * brightness / 0xFF;
+                FRAME_BUFFER[d + 1] = source[b + 1] * brightness / 0xFF;
+                FRAME_BUFFER[d + 2] = source[b + 2] * brightness / 0xFF;
+            }
+        }
+    }
+
+    spi_send_data(FRAME_BUFFER, FRAME_SIZE);
 }
