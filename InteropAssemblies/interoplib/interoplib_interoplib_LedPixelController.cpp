@@ -107,7 +107,10 @@ static SemaphoreHandle_t bodySemaphore = NULL;
 static SemaphoreHandle_t joinSemaphore = NULL;
 
 struct LedTaskParams {
-    uint8_t fps;
+    // Темп ВЫВОДА на ленту (Гц, базовый fps программы) и темп продвижения по
+    // кадрам ПРОГРАММЫ (fps с учётом скорости). Развязаны — см. LedTask_Handler.
+    uint8_t outputFps;
+    uint8_t contentFps;
     uint16_t countFrames;
     uint16_t transition;
 };
@@ -666,14 +669,17 @@ void LedPixelController::NativePrepareForPlay( uint16_t frame, CLR_RT_TypedArray
     hr = S_OK;
 }
 
-void LedPixelController::NativeStartPlay( uint16_t countFrames, uint8_t fps, uint16_t transition, HRESULT &hr )
+void LedPixelController::NativeStartPlay( uint16_t countFrames, uint8_t outputFps, uint8_t contentFps, uint16_t transition, HRESULT &hr )
 {
     if (spi == NULL) {
         hr = S_FALSE;
         return;
     }
 
-    if (countFrames == 0 ||  fps < 1) {
+    // outputFps — темп вывода (пейс), contentFps — темп продвижения по кадрам.
+    // Оба обязаны быть ≥1: нулевой пейс — деление на ноль в тик-Брезенхэме,
+    // нулевой контент — программа стояла бы на месте.
+    if (countFrames == 0 || outputFps < 1 || contentFps < 1) {
         hr = S_FALSE;
         return;
     }
@@ -690,7 +696,7 @@ void LedPixelController::NativeStartPlay( uint16_t countFrames, uint8_t fps, uin
     LedTask_Stop();
     LedTask_Join();
 
-    LedTask_Start(countFrames, fps, transition);
+    LedTask_Start(countFrames, outputFps, contentFps, transition);
 
     hr = S_OK;
 }
@@ -829,7 +835,7 @@ void LedPixelController::NativeSetPixel( uint8_t line, uint16_t cell, uint8_t re
     hr = S_OK;
 }
 
-void LedTask_Start(uint16_t countFrames, uint8_t fps, uint16_t transition)
+void LedTask_Start(uint16_t countFrames, uint8_t outputFps, uint8_t contentFps, uint16_t transition)
 {
     // Ждём, пока подкормка отпустит буферы: пачка предыдущей программы может
     // дочитываться прямо сейчас, а новый таск сразу зальёт свободный буфер из
@@ -843,7 +849,8 @@ void LedTask_Start(uint16_t countFrames, uint8_t fps, uint16_t transition)
     CS_BEGIN(bodySemaphore);
 
     if (!running) {
-        params.fps = fps;
+        params.outputFps = outputFps;
+        params.contentFps = contentFps;
         params.countFrames = countFrames;
         params.transition = transition;
 
@@ -931,7 +938,7 @@ void LedTask_Handler( void * pvParameters )
     bool pendingEntryTransition = false;
 
     uint16_t transitionTime = taskParams->transition;
-    if (1000 / taskParams->fps < transitionTime) {
+    if (1000 / taskParams->contentFps < transitionTime) {
         transitionFrame.length = transitionTime / (1000 / PROGRAM_TRANSITION_FPS);
         transitionFrame.length += 1; // for first frame of next program
         transitionFrame.current = 0;
@@ -966,13 +973,24 @@ void LedTask_Handler( void * pvParameters )
     // fps выше частоты тиков не воспроизвести — зажимаем, иначе периоды в 0 тиков
     // (для xTaskDelayUntil это assert).
     const TickType_t ticksPerSecond = configTICK_RATE_HZ;
-    const uint16_t pacingFps = taskParams->fps < ticksPerSecond ? taskParams->fps : (uint16_t)ticksPerSecond;
+    // Развязка темпа ВЫВОДА и продвижения по кадрам. contentFps — требуемый темп
+    // контента (fps со скоростью); outputFps — темп вывода на ленту, зажатый
+    // потолком железа LED_OUTPUT_FPS_MAX (бюджет SPI-кадра ~15 мс на 400 px).
+    // Совпадают (скорость 1×) — вывод кадр-в-кадр как раньше; contentFps выше
+    // outputFps — лента идёт на outputFps, а по кадрам шагаем дробно (пропуск).
+    const uint16_t contentFps = taskParams->contentFps;
+    const uint16_t outputFps = taskParams->outputFps < LED_OUTPUT_FPS_MAX
+        ? taskParams->outputFps : (uint16_t)LED_OUTPUT_FPS_MAX;
+    // pacingFps — знаменатель тик-Брезенхэма темпа вывода; fps выше частоты тиков
+    // не воспроизвести (период 0 тиков — assert xTaskDelayUntil), поэтому зажимаем.
+    const uint16_t pacingFps = outputFps < ticksPerSecond ? outputFps : (uint16_t)ticksPerSecond;
     const TickType_t programBaseTicks = ticksPerSecond / pacingFps;
     const uint16_t programTicksRemainder = (uint16_t)(ticksPerSecond % pacingFps);
     const TickType_t transitionTimeIncrement = 1000.0 / PROGRAM_TRANSITION_FPS / portTICK_PERIOD_MS;
     CS_END(bodySemaphore);
 
     uint16_t programTicksAcc = 0; // доли тика: числитель, знаменатель pacingFps
+    uint16_t contentAcc = 0; // доли кадра программы: числитель, знаменатель outputFps
 
 	TickType_t lastWakeTime = xTaskGetTickCount();
 
@@ -1229,12 +1247,38 @@ void LedTask_Handler( void * pvParameters )
             }
         }
 
+        // Продвижение по кадрам ПРОГРАММЫ развязано от темпа вывода: за
+        // (1 + skippedPeriods) периодов вывода контент шагает на contentFps/outputFps
+        // кадра через дробный аккумулятор contentAcc. При штатной скорости
+        // contentFps==outputFps → ровно 1 кадр/период, как раньше; при разгоне выше
+        // потолка вывода — пропуск кадров при неизменном темпе ленты (якорь считает
+        // контент по contentFps, позиция группы точна). Переход живёт своим темпом
+        // (PROGRAM_TRANSITION_FPS) — там продвижение как прежде, 1 кадр/период, а
+        // пост-переходный слэв доберёт фазу.
+        const uint32_t elapsedOutputPeriods = (uint32_t)(1 + skippedPeriods);
+        uint16_t frameAdvance;
+        if (programPace) {
+            const uint32_t total = contentAcc + elapsedOutputPeriods * contentFps;
+            frameAdvance = (uint16_t)(total / outputFps);
+            contentAcc = (uint16_t)(total % outputFps);
+        }
+        else
+            frameAdvance = (uint16_t)elapsedOutputPeriods;
+
         // в замирании индекс не двигаем: буфер доигран, ждём пачку — но время
         // группы идёт, и потерянные кадры копим для навёрстывания после свопа
-        if (!stalled)
-            bufferFrameIndex = (uint16_t)(bufferFrameIndex + 1 + skippedPeriods + slewStep);
+        if (!stalled) {
+            // slew (±1 кадр фазовой подтяжки) не должен увести индекс назад, когда
+            // контент и так стоит (frameAdvance==0 при сильном замедлении): придержка
+            // означает «стой», а не «шаг назад» — иначе uint16 уходит в 65535 и мы
+            // читаем мусор за буфером. При frameAdvance>=1 сумма всегда ≥0, как раньше.
+            int netAdvance = (int)frameAdvance + slewStep;
+            if (netAdvance < 0)
+                netAdvance = 0;
+            bufferFrameIndex = (uint16_t)(bufferFrameIndex + (uint16_t)netAdvance);
+        }
         else
-            BEHIND_FRAMES = BEHIND_FRAMES + (int32_t)(1 + skippedPeriods);
+            BEHIND_FRAMES = BEHIND_FRAMES + (int32_t)frameAdvance;
     }
 
     CS_BEGIN(bodySemaphore);
