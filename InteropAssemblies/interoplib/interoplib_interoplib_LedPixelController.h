@@ -48,6 +48,8 @@ namespace interoplib
 
             static void NativeSetRemap( CLR_RT_TypedArray_UINT8 param0, HRESULT &hr );
 
+            static void NativeSetHighlight( uint8_t param0, uint16_t param1, uint16_t param2, uint16_t param3, HRESULT &hr );
+
         };
     }
 }

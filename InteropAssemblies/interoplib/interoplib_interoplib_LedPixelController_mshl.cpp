@@ -269,3 +269,27 @@ HRESULT Library_interoplib_interoplib_LedPixelController::NativeSetRemap___STATI
     }
     NANOCLR_NOCLEANUP();
 }
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeSetHighlight___STATIC__VOID__U1__U2__U2__U2( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        uint8_t param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 0, param0 ) );
+
+        uint16_t param1;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT16( stack, 1, param1 ) );
+
+        uint16_t param2;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT16( stack, 2, param2 ) );
+
+        uint16_t param3;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT16( stack, 3, param3 ) );
+
+        LedPixelController::NativeSetHighlight( param0, param1, param2, param3, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}

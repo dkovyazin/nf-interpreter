@@ -76,6 +76,19 @@ static int FRAME_SIZE = 0;
 #define REMAP_PAD 0xFFFFu
 static uint16_t* remapTable = NULL;
 
+// Подсветка выбранного прохода в режиме калибровки (docs/node-calibration.md):
+// диапазон ФИЗИЧЕСКИХ пикселей линии hlLine мигает красным (фаза «вкл») ↔
+// чёрным. hlCount == 0 — подсветки нет (дефолт). Адресация физическая, ПОВЕРХ
+// ремапа: красным горит окно ленты, которое дескриптор калибровки сейчас
+// считает проходом. Поля меняются под bodySemaphore (NativeSetHighlight),
+// читаются в emit_frame в той же секции. Фаза мигания — по системным тикам:
+// её смена меняет байты FRAME_BUFFER и сама проходит XOR-diff как «кадр
+// изменился», так что пропуск ре-латча неизменившегося кадра мигание не глотает.
+static uint8_t hlLine = 0;
+static uint16_t hlStart = 0;
+static uint16_t hlCount = 0;
+static TickType_t hlBlinkTicks = 0; // полупериод мигания в тиках; 0 — горит постоянно
+
 // Вывод кадра на ленту: ремап + яркость + цветокоррекция (outputLut) →
 // FRAME_BUFFER → SPI (определение ниже).
 static void emit_frame(const uint8_t *source);
@@ -634,6 +647,34 @@ void LedPixelController::NativeSetRemap( CLR_RT_TypedArray_UINT8 param0, HRESULT
     remapTable = table;
     CS_END(bodySemaphore);
     if (old) heap_caps_free(old);
+}
+
+// Подсветка прохода калибровки: диапазон физических пикселей линии line от
+// start длиной count мигает красным↔чёрным (полупериод blinkMs; 0 — горит
+// постоянно). count == 0 — снять подсветку (line/start тогда не проверяются).
+// Оверлей накладывается в emit_frame ПОВЕРХ ремапа/яркости/LUT, поэтому виден
+// только при идущем воспроизведении — режим калибровки всегда играет узор.
+void LedPixelController::NativeSetHighlight( uint8_t line, uint16_t start, uint16_t count, uint16_t blinkMs, HRESULT &hr )
+{
+    if (spi == NULL) {
+        hr = S_FALSE;
+        return;
+    }
+
+    // диапазон обязан лежать в кадре: за его границей запись уехала бы за FRAME_SIZE
+    if (count != 0 && (line >= STRIPS_CNT || (int)start + count > LEDS_COUNT)) {
+        hr = S_FALSE;
+        return;
+    }
+
+    CS_BEGIN(bodySemaphore);
+    hlLine = line;
+    hlStart = start;
+    hlBlinkTicks = pdMS_TO_TICKS(blinkMs);
+    hlCount = count;
+    CS_END(bodySemaphore);
+
+    hr = S_OK;
 }
 
 // Мёртвая зона подгонки фазы: сама сводка на MAIN точна до ±1–2 кадров
@@ -1410,6 +1451,22 @@ static void emit_frame(const uint8_t *source)
                         (uint8_t)(FRAME_BUFFER[d + 2] ^ bl);
                 FRAME_BUFFER[d] = r; FRAME_BUFFER[d + 1] = g; FRAME_BUFFER[d + 2] = bl;
             }
+        }
+    }
+
+    // Оверлей подсветки прохода калибровки — ПОВЕРХ ремапа/яркости/LUT,
+    // физическая адресация (NativeSetHighlight). Фаза «вкл» — красный через ту же
+    // цепочку яркость→LUT, что и обычные пиксели; «выкл» — чёрный. Смена фазы
+    // меняет байты и копится в diff — мигание само пробивает пропуск ре-латча.
+    if (hlCount != 0) {
+        bool on = hlBlinkTicks == 0 || ((xTaskGetTickCount() / hlBlinkTicks) & 1) == 0;
+        uint8_t red = on ? outputLut[0][255 * brightness / 0xFF] : 0;
+        for (int p = hlStart, end = hlStart + hlCount; p < end; p++) {
+            int d = (p * STRIPS_CNT + hlLine) * 3;
+            diff |= (uint8_t)(FRAME_BUFFER[d] ^ red) | FRAME_BUFFER[d + 1] | FRAME_BUFFER[d + 2];
+            FRAME_BUFFER[d] = red;
+            FRAME_BUFFER[d + 1] = 0;
+            FRAME_BUFFER[d + 2] = 0;
         }
     }
 
