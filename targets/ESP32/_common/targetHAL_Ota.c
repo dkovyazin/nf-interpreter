@@ -378,9 +378,14 @@ bool NF_Ota_StageBegin(uint32_t totalSize)
     // starting a new session cancels a committed-but-not-applied update: the
     // erase below invalidates the staged image, and a record left in STAGED
     // would send the boot-hook copying erased flash on the next boot (false
-    // rollback; after CommitFull - a rollback of a perfectly good firmware)
+    // rollback; after CommitFull - a rollback of a perfectly good firmware).
+    // COPYING is reset for the same reason: it can only be seen here if the
+    // boot-hook failed to resolve it (StateStore fault) yet the system booted -
+    // the running deploy therefore works, while a stale COPYING with the old
+    // stageLength/stageCrc over the freshly erased stage would CRC-fail on the
+    // next boot and RestoreBackup would clobber that working deploy.
     StateLoad();
-    if (currentState.state == OTA_STATE_STAGED)
+    if (currentState.state == OTA_STATE_STAGED || currentState.state == OTA_STATE_COPYING)
     {
         currentState.state = OTA_STATE_IDLE;
         if (!StateStore())
@@ -541,7 +546,18 @@ bool NF_Ota_Confirm(void)
 
         currentState.state = OTA_STATE_CONFIRMED;
         currentState.attempts = 0;
-        return StateStore();
+
+        // The record is best-effort: the point of no return is already behind us
+        // (the slot is VALID, the IDF rollback is cancelled), and a failed
+        // ota_state write does not undo that. An honest `false` on store failure
+        // would trap the managed health-monitor in an endless "deadline -> reboot
+        // -> APPLIED again -> store fails again" cycle on perfectly working
+        // firmware. A transient store fault heals on the next boot (state reads
+        // APPLIED, managed re-confirms, mark_valid with nothing pending is a
+        // no-op), and the light-path attempts counter cannot run away to a false
+        // rollback - it is stored through the very same StateStore that failed.
+        StateStore();
+        return true;
     }
 
     if (currentState.state == OTA_STATE_CONFIRMED)
