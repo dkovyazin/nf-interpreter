@@ -30,6 +30,18 @@ CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
 CONFIG_ESPTOOLPY_FLASHFREQ_80M_DEFAULT=y
 CONFIG_ESPTOOLPY_FLASHFREQ="80m"
 
+# LEDTREES: подпись прошивки без аппаратного Secure Boot (eFuse не трогаем).
+# Сборка подписывает nanoCLR.bin ключом RSA-3072 (secure_boot_signing_key.pem
+# в корне репо, НЕ в git — потеря ключа = невозможность выпускать OTA).
+# esp_ota_end() при OTA отвергает образ, не подписанный тем же ключом, что и
+# работающая прошивка (NF_Ota_FirmwareEnd вернёт false). Прошивка по USB
+# по-прежнему принимает что угодно — это осознанный компромисс "этапа 1".
+CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
+CONFIG_SECURE_SIGNED_ON_UPDATE=y
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y
+CONFIG_SECURE_BOOT_SIGNING_KEY="secure_boot_signing_key.pem"
+
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="targets/ESP32/_IDF/esp32s3/partitions_nanoclr_16mb_ota.csv"
 # OTA: new firmware boots as PENDING_VERIFY; rolls back unless confirmed (NF_FEATURE_OTA)

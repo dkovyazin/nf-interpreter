@@ -87,6 +87,10 @@ void app_main()
     // start receiver task
     // 6 kB stack: Monitor_StorageOperation runs FATFS+SDMMC writes on this task
     // (nanoff --filedeployment); the FAT allocation/flush path overflows 3 kB
+    // LEDTREES: receiver нужен доставке рецепта раздачи (HaltedFileDeploy:
+    // pause/resume + AddStorageFile); опасные команды (WriteMemory/EraseMemory/
+    // Execute - деплой и исполнение кода) вырезаны из RTM-таблицы команд
+    // в src/CLR/Debugger/Debugger_minimal.cpp
     xTaskCreatePinnedToCore(&receiver_task, "ReceiverThread", 6144, NULL, 5, &ReceiverTask, 0);
 
     // start the CLR main task

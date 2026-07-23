@@ -25,6 +25,13 @@ CONFIG_ESP32_RESERVE_SPIRAM_IDF_ALLOCATION_BYTES=1048576
 CONFIG_NF_WP_TRANSPORT_USB_CDC_OR_SERIAL=y
 # NF_BUILD_RTM здесь не задаётся: он выводится из CMAKE_BUILD_TYPE
 # (Release/MinSizeRel -> RTM, Debug -> отладчик CLR), см. NF_Kconfig.cmake
+# LEDTREES: остаётся y вынужденно - ESP32-платформа линкует NF_Debugger и
+# wire-protocol-объекты безусловно (binutils.ESP32.cmake:374,973 + прямые
+# объекты в elf), с OFF сборка не сходится. Деплой managed-кода по USB
+# (nanoff --deploy в обход подписи OTA) закрыт иначе: из RTM-таблицы команд
+# (src/CLR/Debugger/Debugger_minimal.cpp) вырезаны WriteMemory/EraseMemory/
+# Execute. Сам wire protocol жив - он нужен доставке рецепта раздачи
+# (HaltedFileDeploy: pause/resume + StorageOperation).
 CONFIG_NF_FEATURE_DEBUGGER=y
 CONFIG_NF_FEATURE_HAS_ACCESSIBLE_STORAGE=y
 CONFIG_NF_FEATURE_HAS_CONFIG_BLOCK=y

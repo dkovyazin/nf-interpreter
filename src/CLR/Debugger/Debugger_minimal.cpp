@@ -22,14 +22,17 @@ const CLR_Messaging_CommandHandlerLookup c_Debugger_Lookup_Request[] = {
     DEFINE_CMD2(Reboot),
 
     DEFINE_CMD2(ReadMemory),
-    DEFINE_CMD2(WriteMemory),
+    // LEDTREES: WriteMemory/EraseMemory/Execute вырезаны из RTM-сборки:
+    // первые две - путь деплоя managed-кода по USB (nanoff --deploy пишет
+    // .pe в deployment-регион) в обход подписи OTA, Execute - исполнение
+    // произвольного кода по адресу. Остальное (в т.ч. StorageOperation и
+    // pause/resume) нужно доставке рецепта раздачи (HaltedFileDeploy).
+    // Debug-сборки (Debugger_full.cpp) не затронуты.
     DEFINE_CMD2(CheckMemory),
-    DEFINE_CMD2(EraseMemory),
     DEFINE_CMD2(QueryConfiguration),
     DEFINE_CMD2(UpdateConfiguration),
     DEFINE_CMD2(StorageOperation),
     //
-    DEFINE_CMD2(Execute),
     DEFINE_CMD2(Reboot),
     DEFINE_CMD2(MemoryMap),
     DEFINE_CMD2(FlashSectorMap),
