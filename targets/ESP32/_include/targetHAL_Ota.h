@@ -60,7 +60,9 @@ extern "C"
     // start writing a new nanoCLR image to the inactive slot; totalSize 0 = unknown
     bool NF_Ota_FirmwareBegin(uint32_t totalSize);
     bool NF_Ota_FirmwareWrite(const uint8_t *data, uint32_t length);
-    // finalize and validate the image (magic, sha256, secure boot if enabled)
+    // finalize and validate the image: magic, sha256, and - with
+    // SECURE_SIGNED_ON_UPDATE builds - the RSA app signature, so an
+    // unsigned/foreign image fails right here
     bool NF_Ota_FirmwareEnd(void);
     // sha256 of the currently running nanoCLR image (to decide full vs light)
     bool NF_Ota_GetRunningSha256(uint8_t sha256[32]);

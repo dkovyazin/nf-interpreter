@@ -35,7 +35,10 @@ CONFIG_ESPTOOLPY_FLASHFREQ="80m"
 # в корне репо, НЕ в git — потеря ключа = невозможность выпускать OTA).
 # esp_ota_end() при OTA отвергает образ, не подписанный тем же ключом, что и
 # работающая прошивка (NF_Ota_FirmwareEnd вернёт false). Прошивка по USB
-# по-прежнему принимает что угодно — это осознанный компромисс "этапа 1".
+# (esptool) по-прежнему принимает что угодно — без eFuse Secure Boot бутлоадер
+# подпись не проверяет, осознанный компромисс "этапа 1"; managed-деплой по
+# wire protocol закрыт отдельно (Debugger_minimal.cpp — только RTM-сборки,
+# Debug с полным дебаггером не затронут).
 CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
 CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
 CONFIG_SECURE_SIGNED_ON_UPDATE=y

@@ -4,7 +4,7 @@
 // генерируются только interoplib.cpp/.h и *_mshl.cpp, их копируют из Stubs).
 //
 // Потоковый SHA-256 и проверка подписи ECDSA P-256 поверх mbedTLS из ESP-IDF.
-// Используются для проверки подписи manifest.json и sha256 артефакта .ltfw
+// Используются для проверки подписи manifest.json и sha256 артефакта .ltf
 // (docs/ota.md §11). Требует, чтобы в конфиге mbedTLS таргета были включены
 // (для esp32s3 это значения по умолчанию — проверить в sdkconfig при сборке):
 //   CONFIG_MBEDTLS_SHA256_C, CONFIG_MBEDTLS_ECDSA_C,
@@ -24,7 +24,7 @@
 using namespace interoplib::interoplib;
 
 // Единственный потоковый контекст: OTA считает хэши строго последовательно
-// (одноразовый хэш манифеста + потоковый хэш .ltfw при скачивании, не одновременно).
+// (одноразовый хэш манифеста + потоковый хэш .ltf при скачивании, не одновременно).
 static mbedtls_sha256_context s_shaCtx;
 static bool s_shaActive = false;
 

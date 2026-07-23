@@ -9,7 +9,8 @@
 // метода в ассембли, и ручная вставка сдвигает индексы — вызовы уходят в чужие слоты).
 //
 // Два потока вывода:
-//   LedTask  (core 1) — гонит кадры на ленту с фиксированным fps из play-буфера;
+//   LedTask  (core 1) — гонит кадры из play-буфера на ленту в темпе outputFps;
+//                       продвижение по кадрам программы (contentFps) развязано;
 //   FeedTask (core 0) — читает следующую пачку кадров с SD в свободный буфер.
 // Буферов воспроизведения два, по BUFFER_FRAMES_COUNT кадров: пока один играет,
 // во второй читается продолжение программы.
@@ -272,7 +273,8 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
     memset(lastRawFrame, 0, FRAME_SIZE);
 
     // NULL допустим (нет внутренней памяти) — подкормка тогда читает прямо в
-    // PSRAM-буфер прежним медленным путём. +4 — под выравнивающий сдвиг pad.
+    // PSRAM-буфер прежним медленным путём. +4 — запас под выравнивающий сдвиг
+    // offset&3 (см. readDst в FeedFrames).
     for (FEED_BOUNCE_CAP = FEED_BOUNCE_FRAMES; FEED_BOUNCE_CAP >= 1; FEED_BOUNCE_CAP /= 2) {
         FEED_BOUNCE = (uint8_t*)heap_caps_malloc(
             (size_t)FEED_BOUNCE_CAP * FRAME_SIZE + 4, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
@@ -316,7 +318,7 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
         SPI_LEDS_FREQ_HZ,         // Clock speed in Hz
         0,                   // Input_delay_ns
         SPI_SAMPLING_POINT_PHASE_0, // Sampling point (new in IDF 5.5)
-        csPin,               // Chip select, we will use manual chip select
+        csPin,               // spics_io_num — аппаратный chip select
         0,                   // SPI_DEVICE flags
         7,                   // Queue size
         0,                   // Callback before
@@ -845,9 +847,10 @@ void LedPixelController::NativeSetPixel( uint8_t line, uint16_t cell, uint8_t re
         return;
     }
 
-    // cell — группа пикселя (12 байт), line — лента 0..3. Мимо этих границ индекс
-    // уезжает за FRAME_SIZE, а lastRawFrame ровно такого размера в куче.
-    if (line > 3 || (int)cell >= LEDS_COUNT) {
+    // cell — группа пикселя (по BYTES_PER_PIXEL на каждую ленту), line — лента.
+    // Мимо этих границ индекс уезжает за FRAME_SIZE, а lastRawFrame ровно такого
+    // размера в куче.
+    if (line >= STRIPS_CNT || (int)cell >= LEDS_COUNT) {
         hr = S_FALSE;
         return;
     }
@@ -857,7 +860,7 @@ void LedPixelController::NativeSetPixel( uint8_t line, uint16_t cell, uint8_t re
 
     CS_BEGIN(bodySemaphore);
 
-    int i = (cell * 3 * 4) + (line * 3);
+    int i = (cell * BYTES_PER_PIXEL * STRIPS_CNT) + (line * BYTES_PER_PIXEL);
     // Цветокоррекция как у плеера/заливки, чтобы точечный цвет совпадал с тем же
     // цветом в программе; яркость здесь не применялась и раньше — не трогаем.
     FRAME_BUFFER[i + 0] = outputLut[0][red];
@@ -1011,8 +1014,6 @@ void LedTask_Handler( void * pvParameters )
     // xTaskDelayUntil, дробный остаток добирает аккумулятор Брезенхэма: часть
     // периодов на тик длиннее, средний темп вывода — точно outputFps. Продвижение
     // по кадрам (contentFps, им же считается якорь MAIN) развязано — см. блок ниже.
-    // outputFps выше частоты тиков не воспроизвести — зажимаем (pacingFps), иначе
-    // периоды в 0 тиков (для xTaskDelayUntil это assert).
     const TickType_t ticksPerSecond = configTICK_RATE_HZ;
     // Развязка темпа ВЫВОДА и продвижения по кадрам. contentFps — требуемый темп
     // контента (fps со скоростью); outputFps — темп вывода на ленту, зажатый
@@ -1063,9 +1064,9 @@ void LedTask_Handler( void * pvParameters )
     // уже играющую группу): длинной программе якорь задаёт старт координат пачек,
     // короткой (вся в буфере, подкормки нет) — стартовый индекс в кольце буфера.
     // Так CURRENT_PROGRAM_FRAME честен для обоих путей, а подкормка получает запросы
-    // сразу в кадрах программы. Оговорка: первый буфер длинной программы managed
-    // готовил до прихода якоря, с кадра 0, — до первого свопа лента играет начало
-    // программы, хотя позиция уже рапортуется от якоря. SOURCE_START_FRAME здесь
+    // сразу в кадрах программы. PREPARE-буфер длинной программы с ненулевым якорем
+    // не играется вовсе (anchoredLongEntry выше) — рассинхрона «позиция от якоря, а
+    // лента с кадра 0» больше нет. SOURCE_START_FRAME (через entryStartFrame)
     // читается без семафора: SetSource строго предшествует StartPlay.
     uint32_t bufferStartFrame = 0;
     uint32_t nextBufferFrame = 0;
@@ -1235,9 +1236,9 @@ void LedTask_Handler( void * pvParameters )
             // и тратить коррекцию нельзя.
         }
 
-        // Вывод через emit_frame: ремап (дизайн→факт калибровки) + яркость.
-        // lastRawFrame — дизайн-кадр; без калибровки ремап = идентичность и это
-        // ровно прежний проход по FRAME_SIZE с яркостью.
+        // Вывод через emit_frame: ремап (дизайн→факт калибровки) + яркость +
+        // цветокоррекция outputLut + пропуск ре-латча неизменившегося кадра.
+        // lastRawFrame — всегда сырой дизайн-кадр, коррекция только на выходе.
         emit_frame(lastRawFrame);
 
         bool exit = requestedForStop;
@@ -1290,8 +1291,9 @@ void LedTask_Handler( void * pvParameters )
         // Продвижение по кадрам ПРОГРАММЫ развязано от темпа вывода: за
         // (1 + skippedPeriods) периодов вывода контент шагает на contentFps/outputFps
         // кадра через дробный аккумулятор contentAcc. При штатной скорости
-        // contentFps==outputFps → ровно 1 кадр/период, как раньше; при разгоне выше
-        // потолка вывода — пропуск кадров при неизменном темпе ленты (якорь считает
+        // contentFps==outputFps → ровно 1 кадр/период, как раньше; при разгоне
+        // (contentFps > outputFps: managed скоростью меняет только contentFps) —
+        // пропуск кадров при неизменном темпе ленты (якорь считает
         // контент по contentFps, позиция группы точна). Переход живёт своим темпом
         // (PROGRAM_TRANSITION_FPS) — там продвижение как прежде, 1 кадр/период, а
         // пост-переходный слэв доберёт фазу.
