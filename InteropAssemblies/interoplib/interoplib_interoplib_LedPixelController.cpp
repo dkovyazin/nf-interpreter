@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <esp_heap_caps.h>
+#include <math.h>          // powf — расчёт гамма-таблиц один раз в NativeInit
 
 // Захват семафора не прячем внутрь assert: под NDEBUG он остаётся вызовом только
 // потому, что ESP-IDF подменяет assert своим заголовком с
@@ -74,7 +75,8 @@ static int FRAME_SIZE = 0;
 #define REMAP_PAD 0xFFFFu
 static uint16_t* remapTable = NULL;
 
-// Вывод кадра на ленту: ремап + яркость → FRAME_BUFFER → SPI (определение ниже).
+// Вывод кадра на ленту: ремап + яркость + цветокоррекция (outputLut) →
+// FRAME_BUFFER → SPI (определение ниже).
 static void emit_frame(const uint8_t *source);
 
 // Общее у LedTask (core 1) и FeedTask (core 0), читается/пишется без блокировок —
@@ -117,6 +119,40 @@ struct LedTaskParams {
 static LedTaskParams params;
 
 static volatile uint8_t brightness = 255;
+
+// Выходная цветокоррекция WS2812: гамма + чёрная точка + баланс белого одной
+// таблицей на канал (OUTPUT_* в interoplib_config.h). WB и яркость — линейные
+// множители и коммутируют, поэтому порядок «WB → яркость → гамма» эквивалентен
+// «яркость → outputLut», где outputLut[c][x] = gamma(x·wb_c) с нулями ниже
+// чёрной точки. В горячем цикле — один lookup на байт после умножения на
+// яркость. Заполняется один раз в NativeInit (до создания задач — чтения без
+// синхронизации безопасны); при нейтральных константах (гамма 1.0, порог 0,
+// WB ×1.0) таблица — идентичность, т.е. прежний байт-в-байт вывод.
+static uint8_t outputLut[3][256];
+
+// Подряд пропущенных отправок неизменившегося кадра (см. OUTPUT_REFRESH_FRAMES).
+// Трогается только задачей вывода в emit_frame — синхронизация не нужна.
+static uint16_t identicalFrames = 0;
+
+static void OutputLut_Init()
+{
+    const uint16_t wb[3] = { OUTPUT_WB_R, OUTPUT_WB_G, OUTPUT_WB_B };
+    for (int c = 0; c < 3; c++) {
+        for (int v = 0; v < 256; v++) {
+            // Чёрная точка — по входу (после яркости): диммирование топит в
+            // чёрное больше остаточного шума, это желаемое поведение.
+            if (v <= OUTPUT_BLACK_POINT) {
+                outputLut[c][v] = 0;
+                continue;
+            }
+            int x = (v * wb[c]) >> 8; // баланс белого, Q8
+            if (x > 255)
+                x = 255;
+            int out = (int)(powf(x / 255.0f, OUTPUT_GAMMA) * 255.0f + 0.5f);
+            outputLut[c][v] = (uint8_t)(out > 255 ? 255 : out);
+        }
+    }
+}
 
 class Transition {
     public:
@@ -219,6 +255,8 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
 
     LEDS_COUNT = pixelCount;
     FRAME_SIZE = pixelCount * STRIPS_CNT * BYTES_PER_PIXEL;
+
+    OutputLut_Init(); // до создания задач: дальше таблицы только читаются
 
     PREPARE_BUFFERS = new uint8_t[BUFFER_FRAMES_COUNT * FRAME_SIZE];
     PROGRAM1_BUFFERS = new uint8_t[BUFFER_FRAMES_COUNT * FRAME_SIZE];
@@ -780,16 +818,17 @@ void LedPixelController::NativeSetFull( uint8_t red, uint8_t green, uint8_t blue
         uint8_t a = s * 0xFF / steps;
         for (int i = 0; i < FRAME_SIZE; ++i) {
             uint8_t raw = (lastRawFrame[i] * (0xFF - a) + target[i % 3] * a) / 0xFF;
-            FRAME_BUFFER[i] = raw * brightness / 0xFF;
+            FRAME_BUFFER[i] = outputLut[i % 3][raw * brightness / 0xFF];
         }
         spi_send_data(FRAME_BUFFER, FRAME_SIZE);
         vTaskDelay(pdMS_TO_TICKS(1000 / PROGRAM_TRANSITION_FPS));
     }
 
-    // финальный кадр точным цветом + фиксация состояния ленты
+    // финальный кадр точным цветом + фиксация состояния ленты (lastRawFrame —
+    // всегда сырой дизайн-цвет, коррекция только на выходе в FRAME_BUFFER)
     for (int i = 0; i < FRAME_SIZE; ++i) {
         lastRawFrame[i] = target[i % 3];
-        FRAME_BUFFER[i] = target[i % 3] * brightness / 0xFF;
+        FRAME_BUFFER[i] = outputLut[i % 3][target[i % 3] * brightness / 0xFF];
     }
 
     spi_send_data(FRAME_BUFFER, FRAME_SIZE);
@@ -819,9 +858,11 @@ void LedPixelController::NativeSetPixel( uint8_t line, uint16_t cell, uint8_t re
     CS_BEGIN(bodySemaphore);
 
     int i = (cell * 3 * 4) + (line * 3);
-    FRAME_BUFFER[i + 0] = red;
-    FRAME_BUFFER[i + 1] = green;
-    FRAME_BUFFER[i + 2] = blue;
+    // Цветокоррекция как у плеера/заливки, чтобы точечный цвет совпадал с тем же
+    // цветом в программе; яркость здесь не применялась и раньше — не трогаем.
+    FRAME_BUFFER[i + 0] = outputLut[0][red];
+    FRAME_BUFFER[i + 1] = outputLut[1][green];
+    FRAME_BUFFER[i + 2] = outputLut[2][blue];
 
     // Состояние ленты для переходов — из него фейдятся StartPlay и SetFull.
     lastRawFrame[i + 0] = red;
@@ -1323,16 +1364,31 @@ void spi_send_data(const uint8_t *data, int len)
 }
 
 // Единственная точка вывода кадра на ленту: пер-нодовый ремап (дизайн→факт) +
-// яркость → FRAME_BUFFER → SPI. source — дизайн-кадр (lastRawFrame при
-// воспроизведении). remapTable == NULL — идентичность, т.е. прежний проход по
-// FRAME_SIZE с яркостью байт-в-байт. Вызывать под bodySemaphore (как главный
-// цикл), чтобы подмена таблицы в NativeSetRemap не пересекалась с чтением.
+// яркость + цветокоррекция (outputLut: гамма/чёрная точка/баланс белого) →
+// FRAME_BUFFER → SPI. source — дизайн-кадр (lastRawFrame при воспроизведении).
+// remapTable == NULL — идентичность по геометрии (кадр как есть); outputLut при
+// нейтральных константах — идентичность по цвету, вместе это прежний
+// байт-в-байт вывод. Вызывать под bodySemaphore (как главный цикл), чтобы
+// подмена таблицы в NativeSetRemap не пересекалась с чтением.
 static void emit_frame(const uint8_t *source)
 {
+    // Аккумулятор отличий от предыдущего вывода (FRAME_BUFFER до перезаписи —
+    // ровно то, что лента латчила последним: все пути отправки идут через него).
+    // XOR-накопление без ветвлений; diff == 0 — кадр байт-в-байт прежний.
+    uint8_t diff = 0;
+
     uint16_t* remap = remapTable;
     if (remap == NULL) {
-        for (int i = 0; i < FRAME_SIZE; i++)
-            FRAME_BUFFER[i] = source[i] * brightness / 0xFF;
+        // FRAME_SIZE кратен 3 (pixelCount * STRIPS_CNT * BYTES_PER_PIXEL) —
+        // проход триплетами, чтобы канал под outputLut был известен без i % 3.
+        for (int i = 0; i < FRAME_SIZE; i += 3) {
+            uint8_t r  = outputLut[0][source[i]     * brightness / 0xFF];
+            uint8_t g  = outputLut[1][source[i + 1] * brightness / 0xFF];
+            uint8_t bl = outputLut[2][source[i + 2] * brightness / 0xFF];
+            diff |= (uint8_t)(FRAME_BUFFER[i] ^ r) | (uint8_t)(FRAME_BUFFER[i + 1] ^ g) |
+                    (uint8_t)(FRAME_BUFFER[i + 2] ^ bl);
+            FRAME_BUFFER[i] = r; FRAME_BUFFER[i + 1] = g; FRAME_BUFFER[i + 2] = bl;
+        }
     }
     else {
         const int slots = FRAME_SIZE / BYTES_PER_PIXEL;
@@ -1340,16 +1396,31 @@ static void emit_frame(const uint8_t *source)
             uint16_t s = remap[slot];
             int d = slot * 3;
             if (s == REMAP_PAD) {
+                diff |= FRAME_BUFFER[d] | FRAME_BUFFER[d + 1] | FRAME_BUFFER[d + 2];
                 FRAME_BUFFER[d] = FRAME_BUFFER[d + 1] = FRAME_BUFFER[d + 2] = 0;
             }
             else {
                 int b = s * 3;
-                FRAME_BUFFER[d]     = source[b]     * brightness / 0xFF;
-                FRAME_BUFFER[d + 1] = source[b + 1] * brightness / 0xFF;
-                FRAME_BUFFER[d + 2] = source[b + 2] * brightness / 0xFF;
+                uint8_t r  = outputLut[0][source[b]     * brightness / 0xFF];
+                uint8_t g  = outputLut[1][source[b + 1] * brightness / 0xFF];
+                uint8_t bl = outputLut[2][source[b + 2] * brightness / 0xFF];
+                diff |= (uint8_t)(FRAME_BUFFER[d] ^ r) | (uint8_t)(FRAME_BUFFER[d + 1] ^ g) |
+                        (uint8_t)(FRAME_BUFFER[d + 2] ^ bl);
+                FRAME_BUFFER[d] = r; FRAME_BUFFER[d + 1] = g; FRAME_BUFFER[d + 2] = bl;
             }
         }
     }
+
+    // Неизменившийся кадр не ре-латчим: перезапуск PWM-цикла WS2812 при каждой
+    // заливке дребезжит на низкой скважности (см. OUTPUT_REFRESH_FRAMES в
+    // interoplib_config.h). Изредка шлём принудительно — страховка от зависших
+    // помеховых глитчей. Темп цикла вывода задаёт xTaskDelayUntil, а не
+    // длительность транзакции, так что пропуск отправки на тайминг не влияет.
+    if (diff == 0 && OUTPUT_REFRESH_FRAMES > 0 && identicalFrames < OUTPUT_REFRESH_FRAMES) {
+        identicalFrames++;
+        return;
+    }
+    identicalFrames = 0;
 
     spi_send_data(FRAME_BUFFER, FRAME_SIZE);
 }
