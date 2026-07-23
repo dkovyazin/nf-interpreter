@@ -47,8 +47,10 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="targets/ESP32/_IDF/esp32s3/partitions_na
 # OTA: new firmware boots as PENDING_VERIFY; rolls back unless confirmed (NF_FEATURE_OTA)
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
-# LEDTREES: -O2 вместо -Os (upstream) - +10-20% на CPU-bound коде, включая
-# интерпретатор CLR, ценой роста размера прошивки (следить за OTA-слотом)
+# LEDTREES: -O2 вместо -Os (upstream) для IDF-компонентов (lwIP, Wi-Fi, FreeRTOS,
+# драйверы), ценой роста размера прошивки (следить за OTA-слотом). На библиотеки
+# nanoFramework (интерпретатор CLR, interop) этот флаг НЕ действует - они
+# собираются флагами CMAKE_BUILD_TYPE; их -O2 задан отдельно в binutils.ESP32.cmake
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_DISABLE=y
 
@@ -98,13 +100,21 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 # на большом коде CLR и работе с PSRAM, ценой 48 КБ внутренней SRAM
 CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
 CONFIG_ESP32S3_DATA_CACHE_64KB=y
+# LEDTREES: линия D-кэша 64 байта вместо 32 - выше пропускная способность
+# octal-PSRAM (кадры и managed-куча живут там): за один промах тянется вдвое
+# больше, накладные на транзакцию размазываются
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
 
 CONFIG_ESP_TASK_WDT_INIT=n
 
 CONFIG_ESP_IPC_TASK_STACK_SIZE=1024
 
 CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=10
-CONFIG_ESP_WIFI_RX_BA_WIN=6
+# LEDTREES: block-ack окно 16 вместо 6 - при потерях в эфире узкое окно
+# душит AMPDU-агрегацию (приёмник не может переупорядочить хвост пачки);
+# рекомендация Espressif для throughput ~ половина DYNAMIC_RX_BUFFER_NUM (32).
+# Цена - internal RAM под буферы только под нагрузкой
+CONFIG_ESP_WIFI_RX_BA_WIN=16
 
 CONFIG_FATFS_LFN_HEAP=y
 
@@ -139,6 +149,10 @@ CONFIG_LWIP_IRAM_OPTIMIZATION=y
 CONFIG_LWIP_TCP_RECVMBOX_SIZE=32
 CONFIG_LWIP_UDP_RECVMBOX_SIZE=32
 CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=32
+# LEDTREES: SACK - при потере сегмента ретрансмитится только дыра, а не весь
+# хвост окна; Wi-Fi теряет пакеты всегда, раздача программ по TCP на больших
+# окнах (22xMSS выше) без SACK платит за каждую потерю целым окном
+CONFIG_LWIP_TCP_SACK_OUT=y
 # LEDTREES: tcpip прибит к ядру 0, ко всему остальному сетевому стеку. CLR
 # теперь на ядре 1 (esp32s3/app_main.c), и непривязанный tcpip (дефолт IDF)
 # планировщик выталкивал бы ровно туда - на самое свободное ядро

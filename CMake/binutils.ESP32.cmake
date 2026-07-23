@@ -215,7 +215,17 @@ macro(nf_add_platform_dependencies target)
             ${TARGET_ESP32_IDF_INCLUDES})
     
     add_dependencies(${target}.elf nano::NF_NativeAssemblies)
-  
+
+    # LEDTREES: -O2 для горячего кода вместо -Os от MinSizeRel. Флаги типа
+    # сборки (CMAKE_*_FLAGS_MINSIZEREL) идут в командной строке раньше
+    # COMPILE_OPTIONS цели, поэтому -O2 здесь побеждает (последний -O выигрывает).
+    # CONFIG_COMPILER_OPTIMIZATION_PERF из sdkconfig покрывает только
+    # IDF-компоненты - интерпретатор CLR (NF_CoreCLR) и interop-код рендера
+    # (NF_NativeAssemblies) без этого собирались с -Os. Тип сборки остаётся
+    # MinSizeRel: RTM и маркер "MinSizeRel build" в TARGETINFOSTRING не меняются.
+    target_compile_options(NF_CoreCLR PRIVATE -O2)
+    target_compile_options(NF_NativeAssemblies PRIVATE -O2)
+
     if(USE_NETWORKING_OPTION)
 
         nf_add_lib_network(
