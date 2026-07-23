@@ -71,3 +71,15 @@ HRESULT Library_interoplib_interoplib_Utilities::NativeSdProbe___STATIC__I4__U1_
     }
     NANOCLR_NOCLEANUP();
 }
+
+HRESULT Library_interoplib_interoplib_Utilities::NativeWifiReconnect___STATIC__VOID( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        Utilities::NativeWifiReconnect(  hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}

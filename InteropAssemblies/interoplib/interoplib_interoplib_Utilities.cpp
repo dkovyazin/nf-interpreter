@@ -10,11 +10,52 @@
 #include <esp_mac.h>
 #include <esp_rom_crc.h>
 #include <esp_log.h>
+#include <esp_wifi.h>
 #include <driver/sdmmc_host.h>
 #include <sdmmc_cmd.h>
 
+// флаг авто-реконнекта сетевого модуля (NF_ESP32_Wireless.cpp, декларация в
+// NF_ESP32_Network.h): пока он выставлен, обработчик WIFI_EVENT_STA_DISCONNECTED
+// сам вызывает esp_wifi_connect — см. NativeWifiReconnect
+extern bool NF_ESP32_IsToConnect;
+
 using namespace interoplib::interoplib;
 
+
+// Принудительный реконнект Wi-Fi STA — лекарство от «мёртвого линка», которого
+// не видит драйвер: узел считает себя подключённым к ПРЕЖНЕМУ инстансу AP
+// (перезагрузка MAIN прошла быстрее beacon-timeout либо тот не отработал) и
+// вечно шлёт кадры со старыми ключами в никуда. Managed-сторожок
+// (ScreenCommandService) зовёт этот метод по тишине от MAIN.
+//
+// Ровно esp_wifi_disconnect: событие STA_DISCONNECTED разбирает обработчик
+// targetHAL_Network.cpp — при выставленном NF_ESP32_IsToConnect он сам вызывает
+// esp_wifi_connect. Флаг поднимаем явно (не полагаясь на текущее состояние):
+// вызов имеет смысл только на STA-девайсе, где подключение штатно и ожидается.
+// Ошибку esp_wifi_disconnect не поднимаем в hr: в любом состоянии драйвера
+// (уже отключён, идёт реконнект) повторная попытка безвредна, а сторожок всё
+// равно повторит через свой интервал.
+void Utilities::NativeWifiReconnect( HRESULT &hr )
+{
+    hr = S_OK;
+
+    // Гейт по режиму: реконнект осмыслен только там, где есть STA-интерфейс.
+    // На AP-девайсе (MAIN, несконфигурированный конфиг-режим) вызов — no-op:
+    // esp_wifi_disconnect там и так вернул бы ошибку, но главное — не трогаем
+    // NF_ESP32_IsToConnect, у AP-конфигурации флаг обязан оставаться false.
+    // Не инициализирован Wi-Fi — esp_wifi_get_mode вернёт ошибку, тоже no-op.
+    wifi_mode_t mode = WIFI_MODE_NULL;
+    if (esp_wifi_get_mode(&mode) != ESP_OK || (mode != WIFI_MODE_STA && mode != WIFI_MODE_APSTA))
+    {
+        return;
+    }
+
+    // Флаг поднимаем явно, не полагаясь на текущее значение: на STA-девайсе
+    // он уже true (выставлен штатным connect'ом с AutoConnect) — присваивание
+    // идемпотентно, но защищает от вызова в окне, когда connect ещё не прошёл.
+    NF_ESP32_IsToConnect = true;
+    esp_wifi_disconnect();
+}
 
 void Utilities::NativeGetBaseMac( CLR_RT_TypedArray_UINT8 param0, HRESULT &hr )
 {

@@ -85,6 +85,7 @@ struct Library_interoplib_interoplib_Utilities
     NANOCLR_NATIVE_DECLARE(NativeGetBaseMac___STATIC__VOID__SZARRAY_U1);
     NANOCLR_NATIVE_DECLARE(NativeCrc32___STATIC__U4__U4__SZARRAY_U1__I4__I4);
     NANOCLR_NATIVE_DECLARE(NativeSdProbe___STATIC__I4__U1__U2__SZARRAY_U1);
+    NANOCLR_NATIVE_DECLARE(NativeWifiReconnect___STATIC__VOID);
 
     //--//
 };
