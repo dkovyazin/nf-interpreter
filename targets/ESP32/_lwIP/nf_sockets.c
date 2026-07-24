@@ -4307,9 +4307,14 @@ uint32_t lwip_socket_get_err(int s)
   // вечно уходил бы устаревший EINPROGRESS (SocketException 10035) вместо
   // реальной причины. netconn_err() ОЧИЩАЕТ pending-ошибку при чтении,
   // поэтому кэшируем её в sock->err — повторные опросы возвращают то же.
-  err = err_to_errno(netconn_err(sock->conn));
-  if (err != 0) {
-    sock->err = err;
+  // conn == NULL в окне teardown (close наполовину прошёл, lwip_netconn_do_close
+  // обнулил conn), а опрос ошибки гоняется с закрытием того же сокета из другого
+  // потока — netconn_err разыменовал бы NULL; тогда отдаём последний кэш sock->err.
+  if (sock->conn != NULL) {
+    err = err_to_errno(netconn_err(sock->conn));
+    if (err != 0) {
+      sock->err = err;
+    }
   }
   err = sock->err;
   done_socket(sock);
