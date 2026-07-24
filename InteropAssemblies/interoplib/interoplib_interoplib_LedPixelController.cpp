@@ -135,14 +135,23 @@ static LedTaskParams params;
 static volatile uint8_t brightness = 255;
 
 // Выходная цветокоррекция WS2812: гамма + чёрная точка + баланс белого одной
-// таблицей на канал (OUTPUT_* в interoplib_config.h). WB и яркость — линейные
-// множители и коммутируют, поэтому порядок «WB → яркость → гамма» эквивалентен
-// «яркость → outputLut», где outputLut[c][x] = gamma(x·wb_c) с нулями ниже
-// чёрной точки. В горячем цикле — один lookup на байт после умножения на
-// яркость. Заполняется один раз в NativeInit (до создания задач — чтения без
-// синхронизации безопасны); при нейтральных константах (гамма 1.0, порог 0,
-// WB ×1.0) таблица — идентичность, т.е. прежний байт-в-байт вывод.
+// таблицей на канал (OUTPUT_* в interoplib_config.h). Две таблицы:
+//
+// - outputLut — БЕЗ яркости (gamma(x·wb_c), нули ниже чёрной точки): её читает
+//   NativeSetPixel, где яркость не применялась и раньше. Заполняется один раз
+//   в NativeInit.
+// - outputBrightLut — с ВШИТОЙ яркостью: outputBrightLut[c][x] =
+//   gamma(x·b·wb_c), яркость учитывается во float ДО гаммы и квантования.
+//   Горячий цикл emit_frame делает один lookup на байт без умножения, а
+//   главное — уходит бандинг тёмных сцен: прежний целочисленный
+//   x·brightness/255 схлопывал тёмные градации в 0 ещё до гаммы (при яркости
+//   128 и гамме > 1 всё тёмное уходило в чёрный ступенями). Пересобирается в
+//   NativeSetBrightness под bodySemaphore (768 записей — микросекунды).
+//
+// При нейтральных константах (гамма 1.0, порог 0, WB ×1.0) и яркости 255 обе
+// таблицы — идентичность, т.е. прежний байт-в-байт вывод.
 static uint8_t outputLut[3][256];
+static uint8_t outputBrightLut[3][256];
 
 // Подряд пропущенных отправок неизменившегося кадра (см. OUTPUT_REFRESH_FRAMES).
 // Трогается только задачей вывода в emit_frame — синхронизация не нужна.
@@ -164,6 +173,28 @@ static void OutputLut_Init()
                 x = 255;
             int out = (int)(powf(x / 255.0f, OUTPUT_GAMMA) * 255.0f + 0.5f);
             outputLut[c][v] = (uint8_t)(out > 255 ? 255 : out);
+        }
+    }
+}
+
+// Пересборка таблицы с вшитой яркостью. Вызывать до старта задач (NativeInit)
+// либо под bodySemaphore: emit_frame читает таблицу весь кадр.
+static void OutputBrightLut_Rebuild(uint8_t bright)
+{
+    const uint16_t wb[3] = { OUTPUT_WB_R, OUTPUT_WB_G, OUTPUT_WB_B };
+    for (int c = 0; c < 3; c++) {
+        for (int v = 0; v < 256; v++) {
+            // яркость во float — тёмные градации не квантуются до гаммы
+            float scaled = v * (bright / 255.0f);
+            if (scaled <= OUTPUT_BLACK_POINT) {
+                outputBrightLut[c][v] = 0;
+                continue;
+            }
+            float x = scaled * wb[c] / 256.0f; // баланс белого, Q8
+            if (x > 255.0f)
+                x = 255.0f;
+            int out = (int)(powf(x / 255.0f, OUTPUT_GAMMA) * 255.0f + 0.5f);
+            outputBrightLut[c][v] = (uint8_t)(out > 255 ? 255 : out);
         }
     }
 }
@@ -262,7 +293,8 @@ static void ToVfsPath(const char* src, char* dst, size_t dstSize)
 
 void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, signed int clkPin, signed int csPin, signed int pixelCount, uint8_t red, uint8_t green, uint8_t blue, HRESULT &hr  )
 {
-    if (spi != NULL || pixelCount > MAX_PIXELS) {
+    // pixelCount < 1 дал бы нулевой/отрицательный FRAME_SIZE и мусорные new[]
+    if (spi != NULL || pixelCount > MAX_PIXELS || pixelCount < 1) {
         hr = S_FALSE;
         return;
     }
@@ -270,7 +302,8 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
     LEDS_COUNT = pixelCount;
     FRAME_SIZE = pixelCount * STRIPS_CNT * BYTES_PER_PIXEL;
 
-    OutputLut_Init(); // до создания задач: дальше таблицы только читаются
+    OutputLut_Init(); // до создания задач: дальше базовая таблица только читается
+    OutputBrightLut_Rebuild(brightness);
 
     PREPARE_BUFFERS = new uint8_t[BUFFER_FRAMES_COUNT * FRAME_SIZE];
     PROGRAM1_BUFFERS = new uint8_t[BUFFER_FRAMES_COUNT * FRAME_SIZE];
@@ -575,6 +608,16 @@ void LedPixelController::NativeSetBrightness( uint8_t value, HRESULT &hr )
 {
     brightness = value;
 
+    // Пересборка таблицы с вшитой яркостью. До NativeInit (bodySemaphore ещё
+    // нет) достаточно запомнить значение — Init пересоберёт сам; после — под
+    // bodySemaphore, чтобы не менять таблицу под читающим её emit_frame
+    // (заодно кадр никогда не выходит «разнояркостным»).
+    if (bodySemaphore != NULL) {
+        CS_BEGIN(bodySemaphore);
+        OutputBrightLut_Rebuild(value);
+        CS_END(bodySemaphore);
+    }
+
     hr = S_OK;
 }
 
@@ -667,10 +710,16 @@ void LedPixelController::NativeSetHighlight( uint8_t line, uint16_t start, uint1
         return;
     }
 
+    // blinkMs короче тика FreeRTOS округлился бы в 0, а 0 здесь — семантика
+    // «горит постоянно»: ненулевой запрос мигания клампим до минимум одного тика
+    TickType_t blinkTicks = pdMS_TO_TICKS(blinkMs);
+    if (blinkMs > 0 && blinkTicks == 0)
+        blinkTicks = 1;
+
     CS_BEGIN(bodySemaphore);
     hlLine = line;
     hlStart = start;
-    hlBlinkTicks = pdMS_TO_TICKS(blinkMs);
+    hlBlinkTicks = blinkTicks;
     hlCount = count;
     CS_END(bodySemaphore);
 
@@ -854,27 +903,33 @@ void LedPixelController::NativeSetFull( uint8_t red, uint8_t green, uint8_t blue
 
     const uint8_t target[3] = { red, green, blue };
 
-    // Циклы идут по FRAME_SIZE, не по BUFF_SIZE: lastRawFrame выделен под фактический
-    // pixelCount, и при меньшей ленте BUFF_SIZE вышел бы за границу кучи.
+    // Кадры уходят через emit_frame — та же цепочка ремап+яркость+LUT, что у
+    // плеера: с активным ремапом PAD-слоты остаются чёрными (прямая заливка
+    // красила и их), и дубль цепочки LUT+яркость исчез. Промежуточные сырые
+    // кадры собираем в transitionFrame.to: задача вывода стоит (Stop/Join
+    // выше), буфер свободен, его размер BUFF_SIZE >= FRAME_SIZE.
+    //
+    // Циклы идут по FRAME_SIZE, не по BUFF_SIZE: lastRawFrame выделен под
+    // фактический pixelCount, и при меньшей ленте BUFF_SIZE вышел бы за
+    // границу кучи.
     int steps = transition / (1000 / PROGRAM_TRANSITION_FPS);
     for (int s = 1; s <= steps; ++s) {
         uint8_t a = s * 0xFF / steps;
-        for (int i = 0; i < FRAME_SIZE; ++i) {
-            uint8_t raw = (lastRawFrame[i] * (0xFF - a) + target[i % 3] * a) / 0xFF;
-            FRAME_BUFFER[i] = outputLut[i % 3][raw * brightness / 0xFF];
-        }
-        spi_send_data(FRAME_BUFFER, FRAME_SIZE);
+        for (int i = 0; i < FRAME_SIZE; ++i)
+            transitionFrame.to[i] = (uint8_t)((lastRawFrame[i] * (0xFF - a) + target[i % BYTES_PER_PIXEL] * a) / 0xFF);
+        emit_frame(transitionFrame.to);
         vTaskDelay(pdMS_TO_TICKS(1000 / PROGRAM_TRANSITION_FPS));
     }
 
     // финальный кадр точным цветом + фиксация состояния ленты (lastRawFrame —
-    // всегда сырой дизайн-цвет, коррекция только на выходе в FRAME_BUFFER)
-    for (int i = 0; i < FRAME_SIZE; ++i) {
-        lastRawFrame[i] = target[i % 3];
-        FRAME_BUFFER[i] = outputLut[i % 3][target[i % 3] * brightness / 0xFF];
-    }
-
-    spi_send_data(FRAME_BUFFER, FRAME_SIZE);
+    // всегда сырой дизайн-цвет, коррекция только на выходе в FRAME_BUFFER).
+    // Финал латчим принудительно (мимо пропуска неизменившегося кадра):
+    // повторная заливка тем же цветом — явный запрос состояния ленты, ей
+    // положено сбросить и возможный помеховый глитч.
+    for (int i = 0; i < FRAME_SIZE; ++i)
+        lastRawFrame[i] = target[i % BYTES_PER_PIXEL];
+    identicalFrames = OUTPUT_REFRESH_FRAMES;
+    emit_frame(lastRawFrame);
 
     CS_END(bodySemaphore);
 
@@ -1024,7 +1079,12 @@ void LedTask_Handler( void * pvParameters )
 
     uint16_t transitionTime = taskParams->transition;
     if (1000 / taskParams->contentFps < transitionTime) {
-        transitionFrame.length = transitionTime / (1000 / PROGRAM_TRANSITION_FPS);
+        // length — uint8: без клампа transition > ~8.4 c (254 шага по 33 мс)
+        // переполнялся бы в короткий мусорный переход
+        int steps = transitionTime / (1000 / PROGRAM_TRANSITION_FPS);
+        if (steps > 254)
+            steps = 254;
+        transitionFrame.length = (uint8_t)steps;
         transitionFrame.length += 1; // for first frame of next program
         transitionFrame.current = 0;
 
@@ -1420,14 +1480,43 @@ static void emit_frame(const uint8_t *source)
     // XOR-накопление без ветвлений; diff == 0 — кадр байт-в-байт прежний.
     uint8_t diff = 0;
 
+    // Оверлей подсветки прохода калибровки — ПОВЕРХ ремапа/яркости/LUT,
+    // физическая адресация (NativeSetHighlight). Цвет подменяется прямо в
+    // основных циклах, а не отдельным проходом после них: отдельный проход
+    // ломал пропуск ре-латча — diff копился против прошлого латча ДО наложения
+    // оверлея (программное значение ≠ красному прошлого латча), и статичный
+    // кадр с горящей подсветкой ре-латчился каждый период, возвращая дребезг
+    // тусклых пикселей именно в калибровке. Оверлейные выходные слоты —
+    // арифметическая прогрессия с шагом STRIPS_CNT: оба цикла идут по выходу
+    // монотонно, членство проверяется одним сравнением со «следующим оверлейным
+    // байт-индексом» hlNextB. Фаза «вкл» — красный через ту же цепочку
+    // яркость→LUT, что и обычные пиксели; «выкл» — чёрный; смена фазы меняет
+    // байты и честно копится в diff — мигание пробивает пропуск ре-латча само.
+    int hlNextB = -1, hlLastB = 0;
+    uint8_t hlRed = 0;
+    if (hlCount != 0) {
+        bool on = hlBlinkTicks == 0 || ((xTaskGetTickCount() / hlBlinkTicks) & 1) == 0;
+        hlRed = on ? outputBrightLut[0][255] : 0;
+        hlNextB = (hlStart * STRIPS_CNT + hlLine) * BYTES_PER_PIXEL;
+        hlLastB = ((hlStart + hlCount - 1) * STRIPS_CNT + hlLine) * BYTES_PER_PIXEL;
+    }
+    const int hlStrideB = STRIPS_CNT * BYTES_PER_PIXEL;
+
     uint16_t* remap = remapTable;
     if (remap == NULL) {
-        // FRAME_SIZE кратен 3 (pixelCount * STRIPS_CNT * BYTES_PER_PIXEL) —
-        // проход триплетами, чтобы канал под outputLut был известен без i % 3.
-        for (int i = 0; i < FRAME_SIZE; i += 3) {
-            uint8_t r  = outputLut[0][source[i]     * brightness / 0xFF];
-            uint8_t g  = outputLut[1][source[i + 1] * brightness / 0xFF];
-            uint8_t bl = outputLut[2][source[i + 2] * brightness / 0xFF];
+        // FRAME_SIZE кратен BYTES_PER_PIXEL — проход триплетами, чтобы канал
+        // под outputBrightLut был известен без i % 3.
+        for (int i = 0; i < FRAME_SIZE; i += BYTES_PER_PIXEL) {
+            uint8_t r, g, bl;
+            if (i == hlNextB) {
+                r = hlRed; g = 0; bl = 0;
+                hlNextB = (i == hlLastB) ? -1 : hlNextB + hlStrideB;
+            }
+            else {
+                r  = outputBrightLut[0][source[i]];
+                g  = outputBrightLut[1][source[i + 1]];
+                bl = outputBrightLut[2][source[i + 2]];
+            }
             diff |= (uint8_t)(FRAME_BUFFER[i] ^ r) | (uint8_t)(FRAME_BUFFER[i + 1] ^ g) |
                     (uint8_t)(FRAME_BUFFER[i + 2] ^ bl);
             FRAME_BUFFER[i] = r; FRAME_BUFFER[i + 1] = g; FRAME_BUFFER[i + 2] = bl;
@@ -1437,36 +1526,24 @@ static void emit_frame(const uint8_t *source)
         const int slots = FRAME_SIZE / BYTES_PER_PIXEL;
         for (int slot = 0; slot < slots; slot++) {
             uint16_t s = remap[slot];
-            int d = slot * 3;
-            if (s == REMAP_PAD) {
-                diff |= FRAME_BUFFER[d] | FRAME_BUFFER[d + 1] | FRAME_BUFFER[d + 2];
-                FRAME_BUFFER[d] = FRAME_BUFFER[d + 1] = FRAME_BUFFER[d + 2] = 0;
+            int d = slot * BYTES_PER_PIXEL;
+            uint8_t r, g, bl;
+            if (d == hlNextB) {
+                r = hlRed; g = 0; bl = 0;
+                hlNextB = (d == hlLastB) ? -1 : hlNextB + hlStrideB;
+            }
+            else if (s == REMAP_PAD) {
+                r = 0; g = 0; bl = 0;
             }
             else {
-                int b = s * 3;
-                uint8_t r  = outputLut[0][source[b]     * brightness / 0xFF];
-                uint8_t g  = outputLut[1][source[b + 1] * brightness / 0xFF];
-                uint8_t bl = outputLut[2][source[b + 2] * brightness / 0xFF];
-                diff |= (uint8_t)(FRAME_BUFFER[d] ^ r) | (uint8_t)(FRAME_BUFFER[d + 1] ^ g) |
-                        (uint8_t)(FRAME_BUFFER[d + 2] ^ bl);
-                FRAME_BUFFER[d] = r; FRAME_BUFFER[d + 1] = g; FRAME_BUFFER[d + 2] = bl;
+                int b = s * BYTES_PER_PIXEL;
+                r  = outputBrightLut[0][source[b]];
+                g  = outputBrightLut[1][source[b + 1]];
+                bl = outputBrightLut[2][source[b + 2]];
             }
-        }
-    }
-
-    // Оверлей подсветки прохода калибровки — ПОВЕРХ ремапа/яркости/LUT,
-    // физическая адресация (NativeSetHighlight). Фаза «вкл» — красный через ту же
-    // цепочку яркость→LUT, что и обычные пиксели; «выкл» — чёрный. Смена фазы
-    // меняет байты и копится в diff — мигание само пробивает пропуск ре-латча.
-    if (hlCount != 0) {
-        bool on = hlBlinkTicks == 0 || ((xTaskGetTickCount() / hlBlinkTicks) & 1) == 0;
-        uint8_t red = on ? outputLut[0][255 * brightness / 0xFF] : 0;
-        for (int p = hlStart, end = hlStart + hlCount; p < end; p++) {
-            int d = (p * STRIPS_CNT + hlLine) * 3;
-            diff |= (uint8_t)(FRAME_BUFFER[d] ^ red) | FRAME_BUFFER[d + 1] | FRAME_BUFFER[d + 2];
-            FRAME_BUFFER[d] = red;
-            FRAME_BUFFER[d + 1] = 0;
-            FRAME_BUFFER[d + 2] = 0;
+            diff |= (uint8_t)(FRAME_BUFFER[d] ^ r) | (uint8_t)(FRAME_BUFFER[d + 1] ^ g) |
+                    (uint8_t)(FRAME_BUFFER[d + 2] ^ bl);
+            FRAME_BUFFER[d] = r; FRAME_BUFFER[d + 1] = g; FRAME_BUFFER[d + 2] = bl;
         }
     }
 

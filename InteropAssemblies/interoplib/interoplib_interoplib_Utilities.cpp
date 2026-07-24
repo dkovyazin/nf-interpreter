@@ -14,10 +14,12 @@
 #include <driver/sdmmc_host.h>
 #include <sdmmc_cmd.h>
 
-// флаг авто-реконнекта сетевого модуля (NF_ESP32_Wireless.cpp, декларация в
-// NF_ESP32_Network.h): пока он выставлен, обработчик WIFI_EVENT_STA_DISCONNECTED
-// сам вызывает esp_wifi_connect — см. NativeWifiReconnect
-extern bool NF_ESP32_IsToConnect;
+// NF_ESP32_IsToConnect — флаг авто-реконнекта сетевого модуля
+// (NF_ESP32_Wireless.cpp): пока он выставлен, обработчик
+// WIFI_EVENT_STA_DISCONNECTED сам вызывает esp_wifi_connect — см.
+// NativeWifiReconnect. Декларация из заголовка, а не локальный extern:
+// локальная копия могла бы разъехаться с настоящим типом.
+#include <NF_ESP32_Network.h>
 
 using namespace interoplib::interoplib;
 
@@ -28,13 +30,19 @@ using namespace interoplib::interoplib;
 // вечно шлёт кадры со старыми ключами в никуда. Managed-сторожок
 // (ScreenCommandService) зовёт этот метод по тишине от MAIN.
 //
-// Ровно esp_wifi_disconnect: событие STA_DISCONNECTED разбирает обработчик
-// targetHAL_Network.cpp — при выставленном NF_ESP32_IsToConnect он сам вызывает
-// esp_wifi_connect. Флаг поднимаем явно (не полагаясь на текущее состояние):
-// вызов имеет смысл только на STA-девайсе, где подключение штатно и ожидается.
-// Ошибку esp_wifi_disconnect не поднимаем в hr: в любом состоянии драйвера
-// (уже отключён, идёт реконнект) повторная попытка безвредна, а сторожок всё
-// равно повторит через свой интервал.
+// esp_wifi_disconnect + безусловный esp_wifi_connect. Одного disconnect'а мало:
+// событие STA_DISCONNECTED (его разбирает обработчик targetHAL_Network.cpp — при
+// выставленном NF_ESP32_IsToConnect он сам вызывает esp_wifi_connect) драйвер
+// порождает только из connected/connecting-состояния. В idle (авто-реконнект
+// оборвался: результат esp_wifi_connect в обработчике не проверяется, одна
+// коллизия со сканом рвёт цепочку навсегда) disconnect события не даёт — без
+// прямого connect узел оставался бы офлайн до передёргивания питания. Прямой
+// вызов безвреден и в остальных состояниях: connected/connecting вернёт ошибку,
+// а реконнект после disconnect сделает обработчик события.
+// Флаг поднимаем явно (не полагаясь на текущее состояние): вызов имеет смысл
+// только на STA-девайсе, где подключение штатно и ожидается. Ошибки в hr не
+// поднимаем: повторная попытка в любом состоянии драйвера безвредна, а сторожок
+// всё равно повторит через свой интервал.
 void Utilities::NativeWifiReconnect( HRESULT &hr )
 {
     hr = S_OK;
@@ -55,6 +63,7 @@ void Utilities::NativeWifiReconnect( HRESULT &hr )
     // идемпотентно, но защищает от вызова в окне, когда connect ещё не прошёл.
     NF_ESP32_IsToConnect = true;
     esp_wifi_disconnect();
+    esp_wifi_connect();
 }
 
 void Utilities::NativeGetBaseMac( CLR_RT_TypedArray_UINT8 param0, HRESULT &hr )
