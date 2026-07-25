@@ -387,6 +387,21 @@ bool NF_Ota_StageBegin(uint32_t totalSize)
     StateLoad();
     if (currentState.state == OTA_STATE_STAGED || currentState.state == OTA_STATE_COPYING)
     {
+        // Distinguish "committed FULL, reboot pending" from "aborted before
+        // CommitFull". CommitFull already switched the boot partition, so
+        // boot != running; StageCommit-without-CommitFull leaves boot == running.
+        // Cancelling the former to IDLE would boot the new nanoCLR against the OLD
+        // deploy (ApplyPending sees IDLE, never copies stage->deploy). Refuse a new
+        // session in that window - the caller must reboot right after CommitFull;
+        // the latter is a genuine cancel and proceeds.
+        const esp_partition_t *booting = esp_ota_get_boot_partition();
+        const esp_partition_t *running = esp_ota_get_running_partition();
+        if (booting != NULL && running != NULL && booting != running)
+        {
+            stagePartition = NULL;
+            return false;
+        }
+
         currentState.state = OTA_STATE_IDLE;
         if (!StateStore())
         {
@@ -535,6 +550,14 @@ bool NF_Ota_Confirm(void)
         // IDLE + pending-verify branch below must not depend on network state
         // to keep booting. Refusal here is retried by the managed
         // health-monitor until its deadline, then rolled back.
+        //
+        // DELIBERATE: the gate fires for LIGHT (managed-only) updates too, not just
+        // FULL. A managed-only change can perfectly well break AP/DHCP serving, and
+        // that must roll back - a "the nanoCLR didn't change, so skip the check"
+        // shortcut would confirm a deploy that silently cannot serve its SCREENs or
+        // receive the next update. Transient AP-down is already tolerated by the
+        // health-monitor's minutes-long deadline across reboots, so only a PERSISTENT
+        // failure reaches a rollback. Do not narrow this to FULL-only.
         if (!NF_ESP32_IsApServingIfExpected())
         {
             return false;

@@ -306,17 +306,31 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
     OutputLut_Init(); // до создания задач: дальше базовая таблица только читается
     OutputBrightLut_Rebuild(brightness);
 
-    PREPARE_BUFFERS = new uint8_t[BUFFER_FRAMES_COUNT * FRAME_SIZE];
-    PROGRAM1_BUFFERS = new uint8_t[BUFFER_FRAMES_COUNT * FRAME_SIZE];
-    PROGRAM2_BUFFERS = new uint8_t[BUFFER_FRAMES_COUNT * FRAME_SIZE];
+    // Буферы воспроизведения (~240 КБ каждый) — в PSRAM, через heap_caps_malloc:
+    // возвращает NULL при нехватке (в отличие от new, который под -fno-exceptions
+    // абортит). Проверяем ДО memset — иначе первый же memset падал бы на NULL.
+    // Частичную раскладку освобождаем и выходим чисто; spi ещё не создан, дальнейшие
+    // Native* отобьются по guard'у spi==NULL. Так же, как FEED_BOUNCE ниже.
+    const size_t buffBytes = (size_t)BUFFER_FRAMES_COUNT * FRAME_SIZE;
+    PREPARE_BUFFERS = (uint8_t*)heap_caps_malloc(buffBytes, MALLOC_CAP_SPIRAM);
+    PROGRAM1_BUFFERS = (uint8_t*)heap_caps_malloc(buffBytes, MALLOC_CAP_SPIRAM);
+    PROGRAM2_BUFFERS = (uint8_t*)heap_caps_malloc(buffBytes, MALLOC_CAP_SPIRAM);
+    // lastRawFrame обнуляется обязательно: с этого кадра фейдится первый же переход
+    // (StartPlay/SetFull), и мусор кучи дал бы случайные цвета на разгорании.
+    lastRawFrame = (uint8_t*)heap_caps_malloc((size_t)FRAME_SIZE, MALLOC_CAP_SPIRAM);
+
+    if (PREPARE_BUFFERS == NULL || PROGRAM1_BUFFERS == NULL || PROGRAM2_BUFFERS == NULL || lastRawFrame == NULL) {
+        heap_caps_free(PREPARE_BUFFERS);  PREPARE_BUFFERS = NULL;
+        heap_caps_free(PROGRAM1_BUFFERS); PROGRAM1_BUFFERS = NULL;
+        heap_caps_free(PROGRAM2_BUFFERS); PROGRAM2_BUFFERS = NULL;
+        heap_caps_free(lastRawFrame);     lastRawFrame = NULL;
+        hr = S_FALSE;
+        return;
+    }
 
     memset(PREPARE_BUFFERS, 0, BUFFER_FRAMES_COUNT * FRAME_SIZE);
     memset(PROGRAM1_BUFFERS, 0, BUFFER_FRAMES_COUNT * FRAME_SIZE);
     memset(PROGRAM2_BUFFERS, 0, BUFFER_FRAMES_COUNT * FRAME_SIZE);
-
-    // Обнулить обязательно: с этого кадра фейдится первый же переход
-    // (StartPlay/SetFull), и мусор кучи дал бы случайные цвета на разгорании.
-    lastRawFrame = new uint8_t[FRAME_SIZE];
     memset(lastRawFrame, 0, FRAME_SIZE);
 
     // NULL допустим (нет внутренней памяти) — подкормка тогда читает прямо в
@@ -788,9 +802,18 @@ void LedPixelController::NativePrepareForPlay( uint16_t frame, CLR_RT_TypedArray
         return;
     }
 
+    // копируем не больше, чем прислал managed (как в NativeWrite): массив короче
+    // FRAME_SIZE читался бы за концом в соседнюю кучу. Слот play-задача читает
+    // целиком по FRAME_SIZE, поэтому недостающий хвост зануляем.
+    int length = (int)data.GetSize();
+    if (length > FRAME_SIZE)
+        length = FRAME_SIZE;
+
     int offset = frame * FRAME_SIZE;
     uint8_t* frameData = (uint8_t*)data.GetBuffer();
-    memcpy(PREPARE_BUFFERS + offset, frameData, FRAME_SIZE);
+    memcpy(PREPARE_BUFFERS + offset, frameData, length);
+    if (length < FRAME_SIZE)
+        memset(PREPARE_BUFFERS + offset + length, 0, FRAME_SIZE - length);
 
     if (frame == 0)
         PREPARED_FRAMES = 1; // сбрасываем счётчик подготовленных фреймов
@@ -832,6 +855,12 @@ void LedPixelController::NativeStartPlay( uint16_t countFrames, uint8_t outputFp
     hr = S_OK;
 }
 
+// ВНИМАНИЕ по контракту: пишет НЕиграющий буфер и правит BUFFERED_FRAMES без
+// Stop/Join и без bodySemaphore — те же данные во время воспроизведения ведёт
+// FeedTask. Безопасно только при вызове на ОСТАНОВЛЕННОМ плеере. Сейчас managed
+// эту точку не зовёт вовсе (обёртка LedPixelController.WriteToPlayBuffer без
+// вызывающих); если вернёте в строй при живом FeedTask — добавьте Stop/Join+лок,
+// как в NativeWrite/NativeSetFull.
 void LedPixelController::NativeWriteToPlayBuffer( uint16_t frame, CLR_RT_TypedArray_UINT8 data, HRESULT &hr )
 {
     if (spi == NULL) {
@@ -853,9 +882,17 @@ void LedPixelController::NativeWriteToPlayBuffer( uint16_t frame, CLR_RT_TypedAr
     else
         buffer = PROGRAM1_BUFFERS;
 
+    // копируем не больше присланного (как в NativeWrite/NativePrepareForPlay);
+    // хвост слота зануляем — play-задача читает его целиком по FRAME_SIZE
+    int length = (int)data.GetSize();
+    if (length > FRAME_SIZE)
+        length = FRAME_SIZE;
+
     int offset = frame * FRAME_SIZE;
     uint8_t* frameData = (uint8_t*)data.GetBuffer();
-    memcpy(buffer + offset, frameData, FRAME_SIZE);
+    memcpy(buffer + offset, frameData, length);
+    if (length < FRAME_SIZE)
+        memset(buffer + offset + length, 0, FRAME_SIZE - length);
 
     if (frame == 0)
         BUFFERED_FRAMES = 1; // сбрасываем счётчик буферизованных кадров воспроизведения
@@ -1412,7 +1449,11 @@ void LedTask_Handler( void * pvParameters )
         uint16_t frameAdvance;
         if (programPace) {
             const uint32_t total = contentAcc + elapsedOutputPeriods * contentFps;
-            frameAdvance = (uint16_t)(total / outputFps);
+            const uint32_t adv = total / outputFps;
+            // при многосекундном голодании задач adv может перескочить uint16 —
+            // клампим, иначе усечение дало бы неверный разовый сдвиг (downstream
+            // всё равно ограничит skip до bufferFramesCount-1)
+            frameAdvance = adv > 0xFFFF ? (uint16_t)0xFFFF : (uint16_t)adv;
             contentAcc = (uint16_t)(total % outputFps);
         }
         else

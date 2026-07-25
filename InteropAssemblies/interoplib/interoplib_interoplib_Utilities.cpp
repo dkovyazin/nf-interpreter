@@ -68,6 +68,12 @@ void Utilities::NativeWifiReconnect( HRESULT &hr )
 
 void Utilities::NativeGetBaseMac( CLR_RT_TypedArray_UINT8 param0, HRESULT &hr )
 {
+    // managed обязан прислать буфер >= 6 байт: короче/NULL — memcpy пишет за концом
+    if (param0.GetBuffer() == NULL || param0.GetSize() < 6) {
+        hr = CLR_E_INVALID_PARAMETER;
+        return;
+    }
+
     uint8_t baseMac[6];
 
     esp_base_mac_addr_get(baseMac);
