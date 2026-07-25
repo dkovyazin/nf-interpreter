@@ -30,6 +30,16 @@ namespace interoplib
 
             static void NativeWifiReconnect(  HRESULT &hr );
 
+            static uint8_t NativeGetResetReason(  HRESULT &hr );
+
+            static unsigned int NativeGetMinFreeHeap( bool param0, HRESULT &hr );
+
+            static unsigned int NativeGetCoredumpSize(  HRESULT &hr );
+
+            static signed int NativeReadCoredump( unsigned int param0, CLR_RT_TypedArray_UINT8 param1, signed int param2, HRESULT &hr );
+
+            static bool NativeEraseCoredump(  HRESULT &hr );
+
         };
     }
 }

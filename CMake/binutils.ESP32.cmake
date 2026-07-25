@@ -668,6 +668,9 @@ macro(nf_add_idf_as_library)
         esp_adc
         littlefs
         app_update
+        # LEDTREES: interop отдаёт наружу дамп нативной паники
+        # (esp_core_dump_image_get/erase, docs/telemetry.md)
+        espcoredump
     )
 
     # set list with the libraries for IDF components added
@@ -685,6 +688,7 @@ macro(nf_add_idf_as_library)
         idf::esp_adc
         idf::littlefs
         idf::app_update
+        idf::espcoredump
     )
 
     # Needed for remote Wifi module on P4 boards

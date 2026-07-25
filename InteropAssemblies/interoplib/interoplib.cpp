@@ -86,16 +86,26 @@ static const CLR_RT_MethodHandler method_lookup[] =
     NULL,
     NULL,
     NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
     Library_interoplib_interoplib_Utilities::NativeGetBaseMac___STATIC__VOID__SZARRAY_U1,
     Library_interoplib_interoplib_Utilities::NativeCrc32___STATIC__U4__U4__SZARRAY_U1__I4__I4,
     Library_interoplib_interoplib_Utilities::NativeSdProbe___STATIC__I4__U1__U2__SZARRAY_U1,
     Library_interoplib_interoplib_Utilities::NativeWifiReconnect___STATIC__VOID,
+    Library_interoplib_interoplib_Utilities::NativeGetResetReason___STATIC__U1,
+    Library_interoplib_interoplib_Utilities::NativeGetMinFreeHeap___STATIC__U4__BOOLEAN,
+    Library_interoplib_interoplib_Utilities::NativeGetCoredumpSize___STATIC__U4,
+    Library_interoplib_interoplib_Utilities::NativeReadCoredump___STATIC__I4__U4__SZARRAY_U1__I4,
+    Library_interoplib_interoplib_Utilities::NativeEraseCoredump___STATIC__BOOLEAN,
 };
 
 const CLR_RT_NativeAssemblyData g_CLR_AssemblyNative_interoplib =
 {
     "interoplib",
-    0xD5B0E092,
+    0xDAD2B63F,
     method_lookup,
     { 2, 0, 0, 0 }
 };

@@ -11,6 +11,10 @@
 #include <esp_rom_crc.h>
 #include <esp_log.h>
 #include <esp_wifi.h>
+#include <esp_system.h>
+#include <esp_heap_caps.h>
+#include <esp_core_dump.h>
+#include <esp_partition.h>
 #include <driver/sdmmc_host.h>
 #include <sdmmc_cmd.h>
 
@@ -176,4 +180,122 @@ signed int Utilities::NativeSdProbe( uint8_t width, uint16_t freqKhz, CLR_RT_Typ
 
     sdmmc_host_deinit();
     return result;
+}
+
+// Причина последнего ресета — сырое значение esp_reset_reason_t (0 unknown,
+// 1 poweron, 2 external, 3 software, 4 panic, 5 int wdt, 6 task wdt, 7 wdt,
+// 8 deep sleep, 9 brownout, 10 sdio). Managed-сторона повторяет ровно эти
+// номера (TelemetryEventCodes.ResetReason): таблица перевода здесь только
+// добавила бы место, где два перечисления разъезжаются при обновлении IDF.
+//
+// Значение живёт в RTC-памяти и переживает перезагрузку, но НЕ отключение
+// питания — после него честно приходит poweron.
+uint8_t Utilities::NativeGetResetReason( HRESULT &hr )
+{
+    hr = S_OK;
+    return (uint8_t)esp_reset_reason();
+}
+
+// Watermark: минимум свободной памяти за всё время работы. Текущее «свободно»
+// отвечает на вопрос «хватает ли сейчас», а этот — «подходили ли мы к краю»:
+// пик потребления между периодическими замерами телеметрии не виден никак иначе.
+//
+// MALLOC_CAP_8BIT — тот же набор, что у nanoFramework.Hardware.Esp32.NativeMemory
+// (GetCaps в nanoFramework_hardware_esp32_native_...NativeMemory.cpp), чтобы
+// watermark и текущее свободно считались по одной и той же куче.
+unsigned int Utilities::NativeGetMinFreeHeap( bool spiRam, HRESULT &hr )
+{
+    hr = S_OK;
+
+    uint32_t caps = MALLOC_CAP_32BIT | MALLOC_CAP_8BIT | (spiRam ? MALLOC_CAP_SPIRAM : MALLOC_CAP_INTERNAL);
+    return (unsigned int)heap_caps_get_minimum_free_size(caps);
+}
+
+// ---------------------------------------------------------------------------
+// Core dump нативной паники (раздел coredump, docs/telemetry.md).
+//
+// Managed-кольцо лога (LogRing) панику не переживает: при ней CLR уже не
+// исполняется, и стек упавшей задачи виден ТОЛЬКО отсюда. Дамп пишет ESP-IDF
+// сам в обработчике паники; managed-сторона его только отдаёт наружу.
+//
+// Адрес и размер спрашиваем у esp_core_dump_image_get на КАЖДЫЙ вызов, а не
+// кэшируем: между чтениями дамп могут стереть (кнопка в админке), а держать
+// протухший адрес и читать по нему мусор — худший исход из возможных.
+// Проверку целостности (SHA256) IDF делает внутри get, поэтому ненулевой
+// размер означает пригодный к разбору дамп, а не «что-то лежит в разделе».
+// ---------------------------------------------------------------------------
+
+static const esp_partition_t *CoredumpPartition()
+{
+    return esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, NULL);
+}
+
+unsigned int Utilities::NativeGetCoredumpSize( HRESULT &hr )
+{
+    hr = S_OK;
+
+    size_t addr = 0;
+    size_t size = 0;
+    if (esp_core_dump_image_get(&addr, &size) != ESP_OK)
+    {
+        // раздела нет (прошивка со старой таблицей), дамп не писался или битый
+        return 0;
+    }
+
+    return (unsigned int)size;
+}
+
+signed int Utilities::NativeReadCoredump( unsigned int offset, CLR_RT_TypedArray_UINT8 buffer, signed int count, HRESULT &hr )
+{
+    hr = S_OK;
+
+    // Границы managed-массива проверяем сами: bounds-check CLR в нативном коде
+    // не работает (та же логика, что в NativeCrc32).
+    if (buffer.GetBuffer() == NULL || count < 0 || (uint32_t)count > buffer.GetSize())
+    {
+        hr = CLR_E_INVALID_PARAMETER;
+        return 0;
+    }
+
+    if (count == 0)
+    {
+        return 0;
+    }
+
+    size_t addr = 0;
+    size_t size = 0;
+    if (esp_core_dump_image_get(&addr, &size) != ESP_OK || offset >= size)
+    {
+        return 0;
+    }
+
+    const esp_partition_t *partition = CoredumpPartition();
+    if (partition == NULL)
+    {
+        return 0;
+    }
+
+    // Хвост короче запрошенного — отдаём сколько есть; читатель идёт по
+    // возвращённой длине, а не по запрошенной.
+    size_t available = size - offset;
+    size_t toRead = (size_t)count < available ? (size_t)count : available;
+
+    // esp_core_dump_image_get отдаёт АБСОЛЮТНЫЙ адрес во флеши, а
+    // esp_partition_read ждёт смещение внутри раздела — переводим одно в другое.
+    // Без этого чтение ушло бы за пределы раздела и вернуло бы ошибку (в лучшем
+    // случае) или чужие данные.
+    size_t partitionOffset = addr - partition->address + offset;
+
+    if (esp_partition_read(partition, partitionOffset, (void *)buffer.GetBuffer(), toRead) != ESP_OK)
+    {
+        return 0;
+    }
+
+    return (signed int)toRead;
+}
+
+bool Utilities::NativeEraseCoredump( HRESULT &hr )
+{
+    hr = S_OK;
+    return esp_core_dump_image_erase() == ESP_OK;
 }
