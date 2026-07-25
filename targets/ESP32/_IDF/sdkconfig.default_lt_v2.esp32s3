@@ -50,6 +50,27 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="targets/ESP32/_IDF/esp32s3/partitions_na
 # OTA: new firmware boots as PENDING_VERIFY; rolls back unless confirmed (NF_FEATURE_OTA)
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
+# LEDTREES: посмертный дамп нативной паники в раздел coredump (48k, docs/telemetry.md).
+# Managed-кольцо лога (LogRing) паники не переживает - при ней CLR уже не исполняется,
+# и стек нативной задачи виден ТОЛЬКО отсюда. Дамп забирает админка по GET /coredump.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+# ELF, а не бинарный формат: бинарный разбирается только совпадающей версией
+# espcoredump.py, ELF читается штатным gdb/idf.py coredump-info по .elf сборки
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_SHA256=y
+# Проверка целостности на бусте: managed-сторона спрашивает "есть ли дамп" и
+# обязана получать ответ про ЦЕЛЫЙ дамп, а не про мусор в стёртом разделе
+CONFIG_ESP_COREDUMP_CHECK_BOOT=y
+# 16 задач вместо 64: в 48k раздела дамп с полусотней стеков не влезет, а
+# лишнего в нём и не нужно - паника случается в одной задаче, остальные
+# интересны как контекст. Не влезший дамп IDF не пишет вовсе.
+CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=16
+# .bss/.data/куча целиком в дамп НЕ берём: это мегабайты при разделе в 48k
+# CONFIG_ESP_COREDUMP_CAPTURE_DRAM is not set
+# Новая паника перезаписывает старый дамп: интересна последняя смерть, а
+# «первая с момента прошивки» — почти всегда уже неактуальная
+# CONFIG_ESP_COREDUMP_FLASH_NO_OVERWRITE is not set
+
 # LEDTREES: -O2 вместо -Os (upstream) для IDF-компонентов (lwIP, Wi-Fi, FreeRTOS,
 # драйверы), ценой роста размера прошивки (следить за OTA-слотом). На библиотеки
 # nanoFramework (интерпретатор CLR, interop) этот флаг НЕ действует - они

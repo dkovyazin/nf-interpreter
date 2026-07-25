@@ -13,6 +13,14 @@ phy_init, data, phy,     0x11000,  0x1000,
 # OTA state machine record (two 4k sectors, ping-pong writes, CRC-protected);
 # deliberately NOT in NVS so it survives an NVS erase/recovery
 ota_state,data, 0x87,    0x12000,  0x2000,
+# LEDTREES: core dump of a native panic (docs/telemetry.md). Lives in the gap
+# between ota_state and the 64k-aligned first app slot - 48k that were unused
+# anyway. Placed HERE and not at the end on purpose: the table is full to the
+# last byte (config ends exactly at 16M), so any partition appended at the end
+# would have to shrink littlefs - and a littlefs whose block count no longer
+# matches its superblock is reformatted, wiping Wi-Fi credentials, node mapping
+# and the telemetry journal on every device of the group.
+coredump, data, coredump, 0x14000,  0xC000,
 # nanoCLR slot A - 2112k
 ota_0,    app, ota_0,    0x20000,  0x210000,
 # nanoCLR slot B - 2112k
