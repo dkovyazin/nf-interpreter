@@ -10,7 +10,7 @@
 //
 // Реализация пишется руками (в отличие от interoplib.cpp/.h и *_mshl.cpp — те
 // генерируются сборкой managed-проекта и лежат готовыми в
-// ledtrees-esp32/nanoframework/main/interoplib/Stubs/interoplib; их надо копировать
+// ledtrees-esp32/nanoframework/src/interoplib/Stubs/interoplib; их надо копировать
 // оттуда, а не править здесь: таблица method_lookup индексируется порядковым номером
 // метода в ассембли, и ручная вставка сдвигает индексы — вызовы уходят в чужие слоты).
 //
