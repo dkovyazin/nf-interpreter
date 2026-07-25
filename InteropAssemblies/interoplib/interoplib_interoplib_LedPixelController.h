@@ -54,14 +54,9 @@ namespace interoplib
     }
 }
 
-// LEDTREES: ручные декларации поверх генерата — задачи вывода/подкормки и SPI.
-// При обновлении файла из Stubs (регенерация после правки managed interoplib)
-// этот блок надо сохранять.
-void LedTask_Start(uint16_t countFrames, uint8_t outputFps, uint8_t contentFps, uint16_t transition);
-void LedTask_Stop();
-void LedTask_Join();
-void LedTask_Handler( void * pvParameters );
-void FeedTask_Handler( void * pvParameters );   // LEDTREES: задача подкормки кадров из файла
-void spi_send_data(const uint8_t *data, int len);
+// LEDTREES: ручных деклараций поверх генерата здесь больше нет — задачи
+// вывода/подкормки и SPI уехали внутрь компонента ledtrees_ledpixel
+// (репозиторий ledtrees-idf-components) и снаружи не видны. Файл теперь чистый
+// генерат: при регенерации из Stubs его можно копировать как есть.
 
 #endif // INTEROPLIB_INTEROPLIB_INTEROPLIB_LEDPIXELCONTROLLER_H

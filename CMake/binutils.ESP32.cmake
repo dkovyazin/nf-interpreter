@@ -216,13 +216,27 @@ macro(nf_add_platform_dependencies target)
     
     add_dependencies(${target}.elf nano::NF_NativeAssemblies)
 
+    # LEDTREES: адаптеры interop зовут API компонентов с нативной реализацией
+    # (ledtrees-idf-components) — линкуем их библиотеки, чтобы к адаптерам
+    # приехали include-каталоги компонентов. Библиотека компонента берётся так
+    # же, как у esp_tinyusb в nf_add_tinyusb_component.
+    foreach(ledtreesComponent ${LEDTREES_COMPONENTS})
+        idf_component_get_property(ledtreesComponentLib ${ledtreesComponent} COMPONENT_LIB)
+        target_link_libraries(NF_NativeAssemblies PUBLIC ${ledtreesComponentLib})
+    endforeach()
+
     # LEDTREES: -O2 для горячего кода вместо -Os от MinSizeRel. Флаги типа
     # сборки (CMAKE_*_FLAGS_MINSIZEREL) идут в командной строке раньше
     # COMPILE_OPTIONS цели, поэтому -O2 здесь побеждает (последний -O выигрывает).
     # CONFIG_COMPILER_OPTIMIZATION_PERF из sdkconfig покрывает только
-    # IDF-компоненты - интерпретатор CLR (NF_CoreCLR) и interop-код рендера
+    # IDF-компоненты - интерпретатор CLR (NF_CoreCLR) и interop-код
     # (NF_NativeAssemblies) без этого собирались с -Os. Тип сборки остаётся
     # MinSizeRel: RTM и маркер "MinSizeRel build" в TARGETINFOSTRING не меняются.
+    #
+    # Сам рендер уехал в компонент ledtrees_ledpixel и сюда больше не относится:
+    # там -O2 прибит своим target_compile_options, чтобы не зависеть от
+    # глобального PERF. Здесь остаются маршалинг и адаптеры - они на каждом
+    # interop-вызове, -O2 им по-прежнему полезен.
     target_compile_options(NF_CoreCLR PRIVATE -O2)
     target_compile_options(NF_NativeAssemblies PRIVATE -O2)
 
@@ -710,6 +724,53 @@ macro(nf_add_idf_as_library)
     if(HAL_USE_THREAD_OPTION)
         list(APPEND IDF_COMPONENTS_TO_ADD openthread)
         list(APPEND IDF_LIBRARIES_TO_ADD idf::openthread)
+    endif()
+
+    # LEDTREES: нативная реализация interop-методов вынесена в отдельные
+    # IDF-компоненты (репозиторий ledtrees-idf-components). Здесь, в
+    # InteropAssemblies/interoplib, остались только генерат MetadataProcessor
+    # (таблица method_lookup + маршалинг) и тонкие адаптеры к API компонентов.
+    #
+    # idf_build_component() ОБЯЗАН быть вызван до idf_build_process() ниже —
+    # иначе компонент не попадёт в граф сборки IDF. Имена дублируются в
+    # IDF_COMPONENTS_TO_ADD (что собирать) и IDF_LIBRARIES_TO_ADD (что линковать
+    # в .elf), как и у штатных компонентов IDF выше.
+    if(NF_INTEROP_ASSEMBLIES MATCHES "interoplib")
+
+        if(NOT LEDTREES_IDF_COMPONENTS_PATH)
+            # дефолт — клон ledtrees-idf-components рядом с nf-interpreter;
+            # иначе путь задаётся опцией -DLEDTREES_IDF_COMPONENTS_PATH=...
+            set(LEDTREES_IDF_COMPONENTS_PATH "${CMAKE_SOURCE_DIR}/../ledtrees-idf-components")
+        endif()
+
+        # Обычная переменная, НЕ кэш: каталог сборки в nf-interpreter один на все
+        # таргеты, и закэшированный список пережил бы переконфигурацию под плату
+        # без interoplib — блок ниже пропустился бы, а idf_component_get_property
+        # у nf_add_lib_native_assemblies спросил бы незарегистрированный
+        # компонент и уронил конфигурацию. Область видимости достаточна:
+        # add_subdirectory с платой идёт после этого макроса и наследует значение.
+        set(LEDTREES_COMPONENTS
+            ledtrees_framecodec
+            ledtrees_crypto
+            ledtrees_sysinfo
+            ledtrees_ledpixel)
+
+        foreach(ledtreesComponent ${LEDTREES_COMPONENTS})
+
+            set(ledtreesComponentDir "${LEDTREES_IDF_COMPONENTS_PATH}/components/${ledtreesComponent}")
+
+            if(NOT EXISTS "${ledtreesComponentDir}/CMakeLists.txt")
+                message(FATAL_ERROR "\n\nLEDTREES component '${ledtreesComponent}' not found at '${ledtreesComponentDir}'.\nClone https://dev.azure.com/ledtrees/_git/ledtrees-idf-components and point -DLEDTREES_IDF_COMPONENTS_PATH=<path> at it.\n\n")
+            endif()
+
+            idf_build_component(${ledtreesComponentDir})
+            list(APPEND IDF_COMPONENTS_TO_ADD ${ledtreesComponent})
+            list(APPEND IDF_LIBRARIES_TO_ADD idf::${ledtreesComponent})
+
+        endforeach()
+
+        message(STATUS "LEDTREES interop components taken from '${LEDTREES_IDF_COMPONENTS_PATH}'")
+
     endif()
 
     # handle specifics for ESP32S2 series
