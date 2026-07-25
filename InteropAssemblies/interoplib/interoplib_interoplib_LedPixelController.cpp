@@ -839,6 +839,14 @@ void LedPixelController::NativeWriteToPlayBuffer( uint16_t frame, CLR_RT_TypedAr
         return;
     }
 
+    // границы буфера воспроизведения: как в NativePrepareForPlay — frame за
+    // пределами пакета (>= BUFFER_FRAMES_COUNT) писал бы за конец PROGRAMx_BUFFERS
+    // и рушил соседнюю PSRAM-кучу
+    if (frame >= BUFFER_FRAMES_COUNT) {
+        hr = S_FALSE;
+        return;
+    }
+
     uint8_t* buffer;
     if (CURRENT_PLAY_BUFFER == 1)
         buffer = PROGRAM2_BUFFERS;
