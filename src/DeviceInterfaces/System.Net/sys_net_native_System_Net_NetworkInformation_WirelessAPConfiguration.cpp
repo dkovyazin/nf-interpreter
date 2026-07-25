@@ -178,6 +178,11 @@ HRESULT Library_sys_net_native_System_Net_NetworkInformation_WirelessAPConfigura
     uint8_t rssi;
     uint32_t phyModes = 0;
 
+    // The cached station info is refreshed from the driver only on connect/disconnect events,
+    // so without this call the RSSI reported here is a snapshot taken when the last station
+    // joined or left - for a long connected station it can be hours old.
+    Network_Interface_update_Stations();
+
     CLR_RT_HeapBlock &top = stack.PushValue();
 
     // Get index of station info required or if index == 0 then return all connected stations

@@ -559,6 +559,8 @@ int Network_Interface_Start_Scan(int index);
 // Wireless AP methods
 void Network_Interface_Add_Station(uint16_t index, uint8_t *macAddress);
 void Network_Interface_Remove_Station(uint16_t index);
+// Refresh the cached station info (RSSI, PHY modes) from the driver.
+void Network_Interface_update_Stations();
 int Network_Interface_Max_Stations();
 bool Network_Interface_Get_Station(uint16_t index, uint8_t *macAddress, uint8_t *rssi, uint32_t *phyModes);
 void Network_Interface_Deauth_Station(uint16_t index);
