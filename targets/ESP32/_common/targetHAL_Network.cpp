@@ -1,4 +1,4 @@
-//
+﻿//
 // Copyright (c) .NET Foundation and Contributors
 // See LICENSE file in the project root for full license information.
 //
@@ -12,6 +12,7 @@
 #include "target_platform.h"
 #include "esp_mac.h"
 #include "esp_eth_com.h"
+#include "esp_rom_sys.h"
 
 #if HAL_USE_THREAD == TRUE
 #include "../_nanoCLR/nanoFramework.Networking.Thread/net_thread_native.h"
@@ -25,7 +26,7 @@ extern esp_netif_t *WifiStationEspNetif;
 // #define 	PRINT_NET_EVENT 	1
 
 // buffer with host name
-char hostName[16] = "ltdevice_";
+char hostName[18] = "nanodevice_";
 
 //
 // Call-back from LWIP on event
@@ -123,7 +124,7 @@ static void compose_esp32_hostname()
     // compose host name with nanodevice and last 3 bytes of MAC address
     // nanodevice_XXXXXX
     uint8_t mac[6];
-    char *macPosition = hostName + 9;
+    char *macPosition = hostName + 11;
 
     // get MAC address
     esp_efuse_mac_get_default(mac);
@@ -152,7 +153,7 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
     ets_printf("Event %d, ID: %d\n", event_base, event_id);
 #endif
 
-#if defined(CONFIG_SOC_WIFI_SUPPORTED)
+#if defined(CONFIG_SOC_WIFI_SUPPORTED) || defined(CONFIG_SOC_WIRELESS_HOST_SUPPORTED)
     if (event_base == WIFI_EVENT)
     {
         switch (event_id)
@@ -203,9 +204,11 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
                 // get disconnected reason
                 staDisconnectedEvent = (wifi_event_sta_disconnected_t *)event_data;
 
-#ifdef PRINT_NET_EVENT
-                ets_printf("WIFI_EVENT_STA_DISCONNECTED  reason : %d\n", staDisconnectedEvent->reason);
-#endif
+                // STA-сторона, читается монитором на узле: причина каждого
+                // дисконнекта (beacon-timeout, deauth от AP, NO_AP_FOUND и т.п.).
+                // В штатной работе молчит; при потере сети — строка на попытку
+                // реконнекта (~раз в 1-2 с), это осознанная цена наблюдаемости.
+                esp_rom_printf("[NET-DIAG] STA disconnected reason %d\r\n", (int)staDisconnectedEvent->reason);
 
                 if (NF_ESP32_ConnectInProgress)
                 {
@@ -278,9 +281,21 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
 
                 // Post the Network interface + Client ID in top 8 bits
                 PostAPStationChanged(1, IDF_WIFI_AP_DEF + (stationIndex << 8));
-#ifdef PRINT_NET_EVENT
-                ets_printf("WIFI_EVENT_AP_STACONNECTED %d\n", apConnectedEvent->aid);
-#endif
+
+                // След ассоциаций с MAC и AID — намеренно безусловный (виден и в
+                // RTM): ассоциации редки, а при полевой диагностике группы это
+                // единственный способ с MAIN увидеть, кто реально на связи. Именно
+                // так была найдена «призрачная ассоциация» узлов после ребута AP
+                // (см. SendHeartbeat в NodeCommandService приложения).
+                esp_rom_printf(
+                    "[NET-DIAG] AP STA connected %02x:%02x:%02x:%02x:%02x:%02x aid %d\r\n",
+                    apConnectedEvent->mac[0],
+                    apConnectedEvent->mac[1],
+                    apConnectedEvent->mac[2],
+                    apConnectedEvent->mac[3],
+                    apConnectedEvent->mac[4],
+                    apConnectedEvent->mac[5],
+                    (int)apConnectedEvent->aid);
                 break;
 
             case WIFI_EVENT_AP_STADISCONNECTED:
@@ -291,9 +306,19 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
                 Network_Interface_Remove_Station(stationIndex);
                 PostAPStationChanged(0, IDF_WIFI_AP_DEF + (stationIndex << 8));
 
-#ifdef PRINT_NET_EVENT
-                ets_printf("WIFI_EVENT_AP_STADISCONNECTED %d\n", apDisconnectedEvent->aid);
-#endif
+                // Причина дисконнекта показывает, кто рвёт связь: узел сам (8 =
+                // LEAVING — штатный ребут), AP выгнал deauth'ом, таймаут
+                // неактивности. Безусловный по той же причине, что и connected.
+                esp_rom_printf(
+                    "[NET-DIAG] AP STA disconnected %02x:%02x:%02x:%02x:%02x:%02x aid %d reason %d\r\n",
+                    apDisconnectedEvent->mac[0],
+                    apDisconnectedEvent->mac[1],
+                    apDisconnectedEvent->mac[2],
+                    apDisconnectedEvent->mac[3],
+                    apDisconnectedEvent->mac[4],
+                    apDisconnectedEvent->mac[5],
+                    (int)apDisconnectedEvent->aid,
+                    (int)apDisconnectedEvent->reason);
                 break;
 
             case WIFI_EVENT_AP_PROBEREQRECVED:
@@ -378,9 +403,20 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
                 if (result != ESP_OK)
                 {
 #ifdef PRINT_NET_EVENT
-                    ets_printf("Failed to configure network for ethernet on connect: %d\n", err);
+                    ets_printf("Failed to configure network for ethernet on connect: %d\n", result);
 #endif
                 }
+
+#if LWIP_IPV6
+                {
+                    // Create IPV6 link local address for ETH interface
+                    struct netif *netif = esp_netif_get_handle_from_ifkey("ETH_DEF")->lwip_netif;
+                    if (netif != NULL)
+                    {
+                        netif_create_ip6_linklocal_address(netif, 1);
+                    }
+                }
+#endif
 
                 PostAvailabilityOn(IDF_ETH_DEF);
                 break;
@@ -523,7 +559,7 @@ void nanoHAL_Network_Initialize()
     {
         ESP_ERROR_CHECK(result);
 
-#if defined(CONFIG_SOC_WIFI_SUPPORTED)
+#if defined(CONFIG_SOC_WIFI_SUPPORTED) || defined(CONFIG_SOC_WIRELESS_HOST_SUPPORTED)
         // register the handler for WIFI events
         ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, NULL));
 #endif
@@ -531,7 +567,7 @@ void nanoHAL_Network_Initialize()
         // register the event handler for IP events
         ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, NULL));
 
-#ifdef ESP32_ETHERNET_SUPPORT
+#if defined(CONFIG_ESP32_ETHERNET_SUPPORT) && CONFIG_ESP32_ETHERNET_SUPPORT == TRUE
         // register the event handler for Ethernet events
         ESP_ERROR_CHECK(esp_event_handler_instance_register(ETH_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, NULL));
 #endif

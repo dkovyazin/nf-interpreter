@@ -14,27 +14,80 @@ CONFIG_UART_ISR_IN_IRAM=y
 CONFIG_PCNT_SUPPRESS_DEPRECATE_WARN=y
 CONFIG_RMT_SUPPRESS_DEPRECATE_WARN=y
 CONFIG_I2S_SUPPRESS_DEPRECATE_WARN=y
+CONFIG_TOUCH_SUPPRESS_DEPRECATE_WARN=y
 
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
 CONFIG_ESPTOOLPY_HEADER_FLASHSIZE_UPDATE=y
 CONFIG_ESPTOOLPY_FLASH_MODE_AUTO_DETECT=y
-CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+# LEDTREES: QIO вместо DIO - 4 линии данных к флешу вместо 2, кэш-промахи
+# (исполнение кода из флеша) обслуживаются ~вдвое быстрее. Применяется только
+# при прошивке по проводу (режим задаёт бутлоадер, OTA его не обновляет).
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASH_SAMPLE_MODE_STR=y
-CONFIG_ESPTOOLPY_FLASHMODE="dio"
+CONFIG_ESPTOOLPY_FLASHMODE="qio"
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
 CONFIG_ESPTOOLPY_FLASHFREQ_80M_DEFAULT=y
 CONFIG_ESPTOOLPY_FLASHFREQ="80m"
 
-CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="targets/ESP32/_IDF/esp32s3/partitions_nanoclr_4mb.csv"
+# LEDTREES: подпись прошивки без аппаратного Secure Boot (eFuse не трогаем).
+# Сборка подписывает nanoCLR.bin ключом RSA-3072 (secure_boot_signing_key.pem
+# в корне репо, НЕ в git — потеря ключа = невозможность выпускать OTA).
+# esp_ota_end() при OTA отвергает образ, не подписанный тем же ключом, что и
+# работающая прошивка (NF_Ota_FirmwareEnd вернёт false). Прошивка по USB
+# (esptool) по-прежнему принимает что угодно — без eFuse Secure Boot бутлоадер
+# подпись не проверяет, осознанный компромисс "этапа 1"; managed-деплой по
+# wire protocol закрыт отдельно (Debugger_minimal.cpp — только RTM-сборки,
+# Debug с полным дебаггером не затронут).
+CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
+CONFIG_SECURE_SIGNED_ON_UPDATE=y
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y
+CONFIG_SECURE_BOOT_SIGNING_KEY="secure_boot_signing_key.pem"
 
-CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="targets/ESP32/_IDF/esp32s3/partitions_nanoclr_16mb_ota.csv"
+# OTA: new firmware boots as PENDING_VERIFY; rolls back unless confirmed (NF_FEATURE_OTA)
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# LEDTREES: посмертный дамп нативной паники в раздел coredump (48k, docs/telemetry.md).
+# Managed-кольцо лога (LogRing) паники не переживает - при ней CLR уже не исполняется,
+# и стек нативной задачи виден ТОЛЬКО отсюда. Дамп забирает админка по GET /coredump.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+# ELF, а не бинарный формат: бинарный разбирается только совпадающей версией
+# espcoredump.py, ELF читается штатным gdb/idf.py coredump-info по .elf сборки
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_SHA256=y
+# Проверка целостности на бусте: managed-сторона спрашивает "есть ли дамп" и
+# обязана получать ответ про ЦЕЛЫЙ дамп, а не про мусор в стёртом разделе
+CONFIG_ESP_COREDUMP_CHECK_BOOT=y
+# 16 задач вместо 64: в 48k раздела дамп с полусотней стеков не влезет, а
+# лишнего в нём и не нужно - паника случается в одной задаче, остальные
+# интересны как контекст. Не влезший дамп IDF не пишет вовсе.
+CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=16
+# .bss/.data/куча целиком в дамп НЕ берём: это мегабайты при разделе в 48k
+# CONFIG_ESP_COREDUMP_CAPTURE_DRAM is not set
+# Новая паника перезаписывает старый дамп: интересна последняя смерть, а
+# «первая с момента прошивки» — почти всегда уже неактуальная
+# CONFIG_ESP_COREDUMP_FLASH_NO_OVERWRITE is not set
+
+# LEDTREES: -O2 вместо -Os (upstream) для IDF-компонентов (lwIP, Wi-Fi, FreeRTOS,
+# драйверы), ценой роста размера прошивки (следить за OTA-слотом). На библиотеки
+# nanoFramework (интерпретатор CLR, interop) этот флаг НЕ действует - они
+# собираются флагами CMAKE_BUILD_TYPE; их -O2 задан отдельно в binutils.ESP32.cmake
+# Убирает из образа штампы времени сборки и абсолютные пути: одинаковые
+# исходники дают одинаковый НЕПОДПИСАННЫЙ образ. Побайтовой одинаковости
+# готового образа это не даёт — подпись RSA-PSS берёт случайную соль, — но
+# делает осмысленным кеш сборки в CI: ключ считается по входам, и при попадании
+# переиспользуется ранее собранный артефакт вместо новой сборки.
+CONFIG_APP_REPRODUCIBLE_BUILD=y
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_DISABLE=y
 
-CONFIG_UART_ISR_IN_IRAM=y
-
-CONFIG_PM_ENABLE=y
+# LEDTREES: PM выключен (upstream включает): питание не от батареи, DFS всё
+# равно не активировался (esp_pm_configure никто не вызывает), а PM-локи в
+# драйверах и tickless idle дают лишние накладные и джиттер
+# CONFIG_PM_ENABLE is not set
 
 #
 # ESP PSRAM
@@ -73,30 +126,67 @@ CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
 
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 
+# LEDTREES: кэши больше дефолта (I-cache 16К, D-cache 32К) - меньше промахов
+# на большом коде CLR и работе с PSRAM, ценой 48 КБ внутренней SRAM
+CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+# LEDTREES: линия D-кэша 64 байта вместо 32 - выше пропускная способность
+# octal-PSRAM (кадры и managed-куча живут там): за один промах тянется вдвое
+# больше, накладные на транзакцию размазываются
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+
 CONFIG_ESP_TASK_WDT_INIT=n
 
 CONFIG_ESP_IPC_TASK_STACK_SIZE=1024
 
 CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=10
-CONFIG_ESP_WIFI_RX_BA_WIN=6
+# LEDTREES: block-ack окно 16 вместо 6 - при потерях в эфире узкое окно
+# душит AMPDU-агрегацию (приёмник не может переупорядочить хвост пачки);
+# рекомендация Espressif для throughput ~ половина DYNAMIC_RX_BUFFER_NUM (32).
+# Цена - internal RAM под буферы только под нагрузкой
+CONFIG_ESP_WIFI_RX_BA_WIN=16
 
 CONFIG_FATFS_LFN_HEAP=y
 
 CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=2304
 CONFIG_FREERTOS_TIMER_TASK_PRIORITY=5
-CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
 
 CONFIG_LOG_DEFAULT_LEVEL_NONE=y
 
-CONFIG_LWIP_LOCAL_HOSTNAME="ltdevice"
+CONFIG_LWIP_LOCAL_HOSTNAME="nanodevice"
 CONFIG_LWIP_MAX_SOCKETS=30
 CONFIG_LWIP_SO_LINGER=y
 CONFIG_LWIP_SO_RCVBUF=y
 CONFIG_LWIP_DHCP_OPTIONS_LEN=80
-CONFIG_LWIP_DHCPS=n
+CONFIG_LWIP_DHCPS=y
+CONFIG_LWIP_DHCPS_LEASE_UNIT=60
+CONFIG_LWIP_DHCPS_MAX_STATION_NUM=8
+CONFIG_LWIP_DHCPS_STATIC_ENTRIES=y
 CONFIG_LWIP_IPV6=n
 CONFIG_LWIP_MAX_LISTENING_TCP=8
 CONFIG_LWIP_SNTP_MAX_SERVERS=2
+
+# LEDTREES: пропускная способность TCP для раздачи программ/OTA (порт 44000).
+# Дефолтное окно/буфер отправки 5760 (4xMSS) ограничивали TCP ~окно/RTT
+# (~0.6-1 МБ/с) независимо от качества канала; 31680 (22xMSS) ~ удваивает
+# потолок ценой ~+12 КБ RAM на сокет. IRAM-оптимизация lwIP даёт ещё +10-20%
+# ценой IRAM (Wi-Fi IRAM-опты уже включены дефолтом IDF).
+CONFIG_LWIP_TCP_WND_DEFAULT=31680
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=31680
+CONFIG_LWIP_IRAM_OPTIMIZATION=y
+# LEDTREES: mailbox-очереди по образцу пресета P4 - дефолтный TCP recvmbox (6)
+# ронял темп на бурстах: сегменты ждали место в очереди на полной скорости
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=32
+CONFIG_LWIP_UDP_RECVMBOX_SIZE=32
+CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=32
+# LEDTREES: SACK - при потере сегмента ретрансмитится только дыра, а не весь
+# хвост окна; Wi-Fi теряет пакеты всегда, раздача программ по TCP на больших
+# окнах (22xMSS выше) без SACK платит за каждую потерю целым окном
+CONFIG_LWIP_TCP_SACK_OUT=y
+# LEDTREES: tcpip прибит к ядру 0, ко всему остальному сетевому стеку. CLR
+# теперь на ядре 1 (esp32s3/app_main.c), и непривязанный tcpip (дефолт IDF)
+# планировщик выталкивал бы ровно туда - на самое свободное ядро
+CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y
 
 CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC=y
 CONFIG_MBEDTLS_SSL_VARIABLE_BUFFER_LENGTH=y
@@ -115,3 +205,15 @@ CONFIG_LITTLEFS_MAX_PARTITIONS=1
 CONFIG_LITTLEFS_OBJ_NAME_LEN=256
 CONFIG_LITTLEFS_OPEN_DIR=y
 CONFIG_LITTLEFS_FCNTL_GET_PATH=y
+
+# Hand-tuned settings carried over from the release-branch sdkconfig
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER=y
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=16
+CONFIG_ESP_TIMER_ISR_AFFINITY=0x1
+CONFIG_MBEDTLS_ECP_FIXED_POINT_OPTIM=y
+CONFIG_LOG_COLORS=y
+# Приостановка erase/write флеши при обращении к XIP: без неё стирание сектора
+# замораживает исполнение кода из флеши на десятки мс, и потоковая установка
+# OTA дёргает LED-анимацию весь приём. Требует чипа с suspend/resume —
+# на неподдерживающем чипе IDF просто не включает механизм.
+CONFIG_SPI_FLASH_AUTO_SUSPEND=y

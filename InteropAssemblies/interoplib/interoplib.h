@@ -13,16 +13,68 @@
 #include <nanoCLR_Runtime.h>
 #include <nanoPackStruct.h>
 
+typedef enum __nfpack OtaState
+{
+    OtaState_Idle = 0,
+    OtaState_Staged = 1,
+    OtaState_Copying = 2,
+    OtaState_Applied = 3,
+    OtaState_Confirmed = 4,
+    OtaState_RolledBack = 5,
+} OtaState;
+
+struct Library_interoplib_interoplib_Crypto
+{
+    NANOCLR_NATIVE_DECLARE(NativeSha256Begin___STATIC__BOOLEAN);
+    NANOCLR_NATIVE_DECLARE(NativeSha256Update___STATIC__BOOLEAN__SZARRAY_U1__I4);
+    NANOCLR_NATIVE_DECLARE(NativeSha256Final___STATIC__BOOLEAN__SZARRAY_U1);
+    NANOCLR_NATIVE_DECLARE(NativeVerifyP256___STATIC__BOOLEAN__SZARRAY_U1__SZARRAY_U1__SZARRAY_U1);
+
+    //--//
+};
+
+struct Library_interoplib_interoplib_FrameDecoder
+{
+    NANOCLR_NATIVE_DECLARE(NativeDecodeFrame___STATIC__I4__SZARRAY_U1__I4__I4__SZARRAY_U1__SZARRAY_U1__U2);
+
+    //--//
+};
+
 struct Library_interoplib_interoplib_LedPixelController
 {
     NANOCLR_NATIVE_DECLARE(NativeInit___STATIC__VOID__I4__I4__I4__I4__I4__U1__U1__U1);
     NANOCLR_NATIVE_DECLARE(NativeSetBrightness___STATIC__VOID__U1);
     NANOCLR_NATIVE_DECLARE(NativePrepareForPlay___STATIC__VOID__U2__SZARRAY_U1);
-    NANOCLR_NATIVE_DECLARE(NativeStartPlay___STATIC__VOID__U2__U1__U2);
+    NANOCLR_NATIVE_DECLARE(NativeStartPlay___STATIC__VOID__U2__U1__U1__U2);
     NANOCLR_NATIVE_DECLARE(NativeWriteToPlayBuffer___STATIC__VOID__U2__SZARRAY_U1);
+    NANOCLR_NATIVE_DECLARE(NativeSetSource___STATIC__VOID__SZARRAY_U1__U4__U2__U2__U2);
     NANOCLR_NATIVE_DECLARE(NativeWrite___STATIC__VOID__SZARRAY_U1);
-    NANOCLR_NATIVE_DECLARE(NativeSetFull___STATIC__VOID__U1__U1__U1);
+    NANOCLR_NATIVE_DECLARE(NativeSetFull___STATIC__VOID__U1__U1__U1__U2);
     NANOCLR_NATIVE_DECLARE(NativeSetPixel___STATIC__VOID__U1__U2__U1__U1__U1);
+    NANOCLR_NATIVE_DECLARE(NativeGetPlayPosition___STATIC__I4);
+    NANOCLR_NATIVE_DECLARE(NativeSyncPlayPosition___STATIC__I4__U2);
+    NANOCLR_NATIVE_DECLARE(NativeGetFeedReadErrors___STATIC__I4);
+    NANOCLR_NATIVE_DECLARE(NativeSetRemap___STATIC__VOID__SZARRAY_U1);
+    NANOCLR_NATIVE_DECLARE(NativeSetHighlight___STATIC__VOID__U1__U2__U2__U2);
+
+    //--//
+};
+
+struct Library_interoplib_interoplib_Ota
+{
+    NANOCLR_NATIVE_DECLARE(NativeFirmwareBegin___STATIC__BOOLEAN__I4);
+    NANOCLR_NATIVE_DECLARE(NativeFirmwareWrite___STATIC__BOOLEAN__SZARRAY_U1__I4);
+    NANOCLR_NATIVE_DECLARE(NativeFirmwareEnd___STATIC__BOOLEAN);
+    NANOCLR_NATIVE_DECLARE(NativeGetRunningSha256___STATIC__BOOLEAN__SZARRAY_U1);
+    NANOCLR_NATIVE_DECLARE(NativeStageBegin___STATIC__BOOLEAN__I4);
+    NANOCLR_NATIVE_DECLARE(NativeStageWrite___STATIC__BOOLEAN__SZARRAY_U1__I4);
+    NANOCLR_NATIVE_DECLARE(NativeStageCommit___STATIC__BOOLEAN__U4);
+    NANOCLR_NATIVE_DECLARE(NativeCommitFull___STATIC__BOOLEAN);
+    NANOCLR_NATIVE_DECLARE(NativeConfirm___STATIC__BOOLEAN);
+    NANOCLR_NATIVE_DECLARE(NativeGetState___STATIC__U1);
+    NANOCLR_NATIVE_DECLARE(NativeIsPendingConfirm___STATIC__BOOLEAN);
+    NANOCLR_NATIVE_DECLARE(NativeReadRunningFirmware___STATIC__I4__I4__SZARRAY_U1__I4);
+    NANOCLR_NATIVE_DECLARE(NativeReadDeploy___STATIC__I4__I4__SZARRAY_U1__I4);
 
     //--//
 };
@@ -32,6 +84,14 @@ struct Library_interoplib_interoplib_Utilities
     static const int FIELD_STATIC___baseMac = 0;
 
     NANOCLR_NATIVE_DECLARE(NativeGetBaseMac___STATIC__VOID__SZARRAY_U1);
+    NANOCLR_NATIVE_DECLARE(NativeCrc32___STATIC__U4__U4__SZARRAY_U1__I4__I4);
+    NANOCLR_NATIVE_DECLARE(NativeSdProbe___STATIC__I4__U1__U2__SZARRAY_U1);
+    NANOCLR_NATIVE_DECLARE(NativeWifiReconnect___STATIC__VOID);
+    NANOCLR_NATIVE_DECLARE(NativeGetResetReason___STATIC__U1);
+    NANOCLR_NATIVE_DECLARE(NativeGetMinFreeHeap___STATIC__U4__BOOLEAN);
+    NANOCLR_NATIVE_DECLARE(NativeGetCoredumpSize___STATIC__U4);
+    NANOCLR_NATIVE_DECLARE(NativeReadCoredump___STATIC__I4__U4__SZARRAY_U1__I4);
+    NANOCLR_NATIVE_DECLARE(NativeEraseCoredump___STATIC__BOOLEAN);
 
     //--//
 };

@@ -35,9 +35,15 @@ static const int spiReservedFinalGpio = 32;
 #elif defined(CONFIG_IDF_TARGET_ESP32C3)
 static const int spiReservedInitialGpio = 12;
 static const int spiReservedFinalGpio = 17;
+#elif defined(CONFIG_IDF_TARGET_ESP32C5)
+static const int spiReservedInitialGpio = 15;
+static const int spiReservedFinalGpio = 22;
 #elif defined(CONFIG_IDF_TARGET_ESP32C6)
 static const int spiReservedInitialGpio = 24;
 static const int spiReservedFinalGpio = 30;
+#elif defined(CONFIG_IDF_TARGET_ESP32C61)
+static const int spiReservedInitialGpio = 14;
+static const int spiReservedFinalGpio = 21;
 #elif defined(CONFIG_IDF_TARGET_ESP32H2)
 static const int spiReservedInitialGpio = 15;
 static const int spiReservedFinalGpio = 21;
@@ -141,7 +147,7 @@ static void Esp_Gpio_DebounceHandler(TimerHandle_t timer)
     if (state != NULL)
     {
         // get current pin state
-        bool actual = CPU_GPIO_GetPinState(state->pinNumber);
+        GpioPinValue actual = CPU_GPIO_GetPinState(state->pinNumber);
 
         if (actual == state->expected)
         {
@@ -244,6 +250,12 @@ bool CPU_GPIO_ReservePin(GPIO_PIN pinNumber, bool fReserve)
 // Return if Pin is reserved
 bool CPU_GPIO_PinIsBusy(GPIO_PIN pin)
 {
+    // Always return busy for invalid pins
+    if (!GPIO_IS_VALID_GPIO((gpio_num_t)pin))
+    {
+        return true;
+    }
+
     int port = pin >> 4, sh = pin & 0x0F;
     return (pinReserved[port] >> sh) & 1;
 }
@@ -317,9 +329,6 @@ static void gpio_isr(void *arg)
         return;
     }
 
-    // get current pin state
-    bool actual = CPU_GPIO_GetPinState(state->pinNumber);
-
     if (state->debounceMs > 0)
     {
         // flag waiting for debounce timeout
@@ -338,9 +347,15 @@ static void gpio_isr(void *arg)
     }
     else
     {
-        state->current = actual;
-        // just fire event
-        state->isrPtr(state->pinNumber, actual, state->param);
+        // get current pin state
+        GpioPinValue actual = gpio_get_level((gpio_num_t)state->pinNumber) ? GpioPinValue_High : GpioPinValue_Low;
+
+        if (actual != state->current)
+        {
+            state->current = actual;
+
+            state->isrPtr(state->pinNumber, actual, state->param);
+        }
     }
 
     NATIVE_INTERRUPT_END
@@ -360,6 +375,8 @@ bool CPU_GPIO_EnableInputPin(
     // Check Input drive mode
     if (driveMode >= (int)PinMode_Output)
         return false;
+
+    gpio_reset_pin((gpio_num_t)pinNumber);
 
     // Set as Input GPIO_INT_EDGE intEdge, GPIO_RESISTOR ResistorState
     if (!CPU_GPIO_SetDriveMode(pinNumber, driveMode))
@@ -455,6 +472,8 @@ bool CPU_GPIO_EnableOutputPin(GPIO_PIN pinNumber, GpioPinValue InitialState, Pin
 
     // If this is currently an input pin then clean up
     DeleteInputState(pinNumber);
+
+    gpio_reset_pin((gpio_num_t)pinNumber);
 
     if (CPU_GPIO_SetDriveMode(pinNumber, driveMode) == false)
     {

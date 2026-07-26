@@ -27,8 +27,14 @@ set(interoplib_SRCS
     interoplib.cpp
 
 
+    interoplib_interoplib_Crypto_mshl.cpp
+    interoplib_interoplib_Crypto.cpp
+    interoplib_interoplib_FrameDecoder_mshl.cpp
+    interoplib_interoplib_FrameDecoder.cpp
     interoplib_interoplib_LedPixelController_mshl.cpp
     interoplib_interoplib_LedPixelController.cpp
+    interoplib_interoplib_Ota_mshl.cpp
+    interoplib_interoplib_Ota.cpp
     interoplib_interoplib_Utilities_mshl.cpp
     interoplib_interoplib_Utilities.cpp
 
@@ -57,4 +63,8 @@ endforeach()
 
 include(FindPackageHandleStandardArgs)
 
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(interoplib DEFAULT_MSG interoplib_INCLUDE_DIRS interoplib_SOURCES)
+# пакет ищется как INTEROP-interoplib, а переменные модуль ведёт от имени
+# interoplib — несоответствие намеренное, NAME_MISMATCHED глушит dev-warning
+FIND_PACKAGE_HANDLE_STANDARD_ARGS(interoplib
+    NAME_MISMATCHED
+    REQUIRED_VARS interoplib_INCLUDE_DIRS interoplib_SOURCES)

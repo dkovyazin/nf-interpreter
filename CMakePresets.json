@@ -2,113 +2,25 @@
     "version": 4,
     "include": [
         "CMake/arm-gcc.json",
-        "CMake/xtensa-esp32.json",
-        "CMake/xtensa-esp32c3.json",
-        "CMake/xtensa-esp32s2.json",
-        "CMake/xtensa-esp32s3.json",
-        "targets/AzureRTOS/CMakePresets.json",
+        "targets/ThreadX/CMakePresets.json",
         "targets/ChibiOS/CMakePresets.json",
         "targets/ESP32/CMakePresets.json",
-        "targets/FreeRTOS/CMakePresets.json"
+        "targets/FreeRTOS/CMakePresets.json",
+        "targets/TI_SimpleLink/CMakePresets.json"
     ],
     "configurePresets": [
-        {
-            "name": "ESP32_LEDTREES_V1",
-            "description": "ESP32_LEDTREES_V1",
-            "displayName": "ESP32_LEDTREES_V1",
-            "inherits": [
-                "ESP32_S3"
-            ],
-            "cacheVariables": {
-                "TARGET_NAME": "${presetName}",
-                "SDK_CONFIG_FILE": "sdkconfig.default_lt_v1.esp32s3",
-                "NF_BUILD_RTM": "ON",
-                "API_System.Device.Wifi": "ON",
-                "API_System.Device.Adc": "OFF",
-                "API_nanoFramework.Networking.Thread": "OFF",
-                "API_nanoFramework.Device.Bluetooth": "OFF",
-                "API_nanoFramework.Device.OneWire": "OFF",
-                "API_nanoFramework.Device.Can": "OFF",
-                "API_nanoFramework.Graphics": "OFF",
-                "API_Hardware.Stm32": "OFF",
-                "API_System.Device.I2c": "OFF",
-                "API_System.Device.I2c.Slave": "OFF",
-                "API_System.Device.I2s": "OFF",
-                "NF_INTEROP_ASSEMBLIES": "interoplib"
-            }
-        },
-        {
-            "name": "ESP32_LEDTREES_V1_DEV",
-            "description": "ESP32_LEDTREES_V1_DEV",
-            "displayName": "ESP32_LEDTREES_V1_DEV",
-            "inherits": [
-                "ESP32_S3"
-            ],
-            "cacheVariables": {
-                "TARGET_NAME": "${presetName}",
-                "SDK_CONFIG_FILE": "sdkconfig.default_lt_v1.esp32s3",
-                "NF_BUILD_RTM": "OFF",
-                "API_System.Device.Wifi": "ON",
-                "API_System.Device.Adc": "OFF",
-                "API_nanoFramework.Networking.Thread": "OFF",
-                "API_nanoFramework.Device.Bluetooth": "OFF",
-                "API_nanoFramework.Device.OneWire": "OFF",
-                "API_nanoFramework.Device.Can": "OFF",
-                "API_nanoFramework.Graphics": "OFF",
-                "API_Hardware.Stm32": "OFF",
-                "API_System.Device.I2c": "OFF",
-                "API_System.Device.I2c.Slave": "OFF",
-                "API_System.Device.I2s": "OFF",
-                "NF_INTEROP_ASSEMBLIES": "interoplib"
-            }
-        },
         {
             "name": "ESP32_LEDTREES_V2",
             "description": "ESP32_LEDTREES_V2",
             "displayName": "ESP32_LEDTREES_V2",
             "inherits": [
-                "ESP32_S3"
+                "xtensa-esp32s3-preset",
+                "user-tools-repos",
+                "user-prefs"
             ],
             "cacheVariables": {
                 "TARGET_NAME": "${presetName}",
-                "SDK_CONFIG_FILE": "sdkconfig.default_lt_v2.esp32s3",
-                "NF_BUILD_RTM": "ON",
-                "API_System.Device.Wifi": "ON",
-                "API_System.Device.Adc": "OFF",
-                "API_nanoFramework.Networking.Thread": "OFF",
-                "API_nanoFramework.Device.Bluetooth": "OFF",
-                "API_nanoFramework.Device.OneWire": "OFF",
-                "API_nanoFramework.Device.Can": "OFF",
-                "API_nanoFramework.Graphics": "OFF",
-                "API_Hardware.Stm32": "OFF",
-                "API_System.Device.I2c": "OFF",
-                "API_System.Device.I2c.Slave": "OFF",
-                "API_System.Device.I2s": "OFF",
-                "NF_INTEROP_ASSEMBLIES": "interoplib"
-            }
-        },
-        {
-            "name": "ESP32_LEDTREES_V2_DEV",
-            "description": "ESP32_LEDTREES_V2_DEV",
-            "displayName": "ESP32_LEDTREES_V2_DEV",
-            "inherits": [
-                "ESP32_S3"
-            ],
-            "cacheVariables": {
-                "TARGET_NAME": "${presetName}",
-                "SDK_CONFIG_FILE": "sdkconfig.default_lt_v2.esp32s3",
-                "NF_BUILD_RTM": "OFF",
-                "API_System.Device.Wifi": "ON",
-                "API_System.Device.Adc": "OFF",
-                "API_nanoFramework.Networking.Thread": "OFF",
-                "API_nanoFramework.Device.Bluetooth": "OFF",
-                "API_nanoFramework.Device.OneWire": "OFF",
-                "API_nanoFramework.Device.Can": "OFF",
-                "API_nanoFramework.Graphics": "OFF",
-                "API_Hardware.Stm32": "OFF",
-                "API_System.Device.I2c": "OFF",
-                "API_System.Device.I2c.Slave": "OFF",
-                "API_System.Device.I2s": "OFF",
+                "NF_TARGET_DEFCONFIG": "targets/ESP32/defconfig/ESP32_LEDTREES_V2_defconfig",
                 "NF_INTEROP_ASSEMBLIES": "interoplib"
             }
         }

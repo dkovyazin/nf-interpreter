@@ -7,6 +7,14 @@
 #include "fatfs_FS_Driver.h"
 #include <stdlib.h>
 
+// NOTE (LEDTREES): на ESP32 этот драйвер фактически НЕ ИСПОЛЬЗУЕТСЯ. SD-том
+// монтируется через FS_MountVolume(..., "FATFS"), но littlefs-драйвер
+// (POSIX/VFS-обёртка) тоже объявляет Name = "FATFS" (upstream-копипаста) и
+// стоит ПЕРВЫМ в g_AvailableFSInterfaces — поиск по имени достаётся ему, и SD
+// обслуживает он. Оптимизации скорости SD живут в littlefs_FS_Driver.cpp.
+// Вдобавок Open() здесь строит VFS-путь и отдаёт его f_open, ожидающему путь
+// в формате FatFs, — код на ESP32, судя по всему, никогда не работал.
+
 extern FileSystemVolume *g_FS_Volumes;
 
 static int32_t RemoveAllFiles(const char *path);

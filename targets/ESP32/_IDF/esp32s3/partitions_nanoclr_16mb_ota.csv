@@ -1,0 +1,38 @@
+################################################
+# ESP-IDF Partition Table for .NET nanoFramework
+# OTA variant (NF_FEATURE_OTA): A/B nanoCLR slots + staged deployment update
+# Name,   Type, SubType, Offset,  Size,
+###############################################################################################################################
+# if you change the partitions here, make sure to update the BlockRegions array in the device BlockStorage configuration file #
+# and the OTA state machine in targetHAL_Ota.c                                                                                #
+###############################################################################################################################
+nvs,      data, nvs,     0x9000,   0x6000,
+# OTA data: active slot selection (A/B), managed atomically by the IDF bootloader
+otadata,  data, ota,     0xf000,   0x2000,
+phy_init, data, phy,     0x11000,  0x1000,
+# OTA state machine record (two 4k sectors, ping-pong writes, CRC-protected);
+# deliberately NOT in NVS so it survives an NVS erase/recovery
+ota_state,data, 0x87,    0x12000,  0x2000,
+# LEDTREES: core dump of a native panic (docs/telemetry.md). Lives in the gap
+# between ota_state and the 64k-aligned first app slot - 48k that were unused
+# anyway. Placed HERE and not at the end on purpose: the table is full to the
+# last byte (config ends exactly at 16M), so any partition appended at the end
+# would have to shrink littlefs - and a littlefs whose block count no longer
+# matches its superblock is reformatted, wiping Wi-Fi credentials, node mapping
+# and the telemetry journal on every device of the group.
+coredump, data, coredump, 0x14000,  0xC000,
+# nanoCLR slot A - 2112k
+ota_0,    app, ota_0,    0x20000,  0x210000,
+# nanoCLR slot B - 2112k
+ota_1,    app, ota_1,    0x230000, 0x210000,
+# Deployment area for Managed code (working copy) 2624k
+deploy,   data, 0x84,    0x440000, 0x290000,
+# Staging area for a new managed deployment image 2624k
+stage,    data, 0x85,    0x6D0000, 0x290000,
+# Backup of the previous managed deployment image (rollback) 2624k
+backup,   data, 0x86,    0x960000, 0x290000,
+# Config data for Network, Wireless, certificates, user data 4160k
+config,   data, littlefs, 0xBF0000, 0x410000,
+##########################################
+# total size has to be 0x1000000 or less #
+##########################################

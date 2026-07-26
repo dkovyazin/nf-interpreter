@@ -45,6 +45,12 @@ static const char *TAG = "SDCard";
 
 sdmmc_card_t *card;
 
+// Буква тома, под которой смонтирована карта из card (0 — не смонтирована).
+// card один на всю систему, а слотов может быть несколько: без этой привязки
+// потребитель не отличит «свой» том от чужого и отдал бы для второго слота
+// характеристики первой карты.
+char cardDriveLetter;
+
 //
 //  Unmount SD card ( MMC/SDIO or SPI)
 //
@@ -62,6 +68,7 @@ bool Storage_UnMountSDCard(int driveIndex)
     }
 
     card = NULL;
+    cardDriveLetter = 0;
 
     return true;
 }
@@ -70,6 +77,14 @@ bool LogMountResult(esp_err_t errCode)
 {
     if (errCode != ESP_OK)
     {
+#if !CONFIG_NF_BUILD_RTM
+        // DEV builds ship with esp_log compiled out (LOG_DEFAULT_LEVEL_NONE),
+        // so report straight to the console for diagnostics
+        esp_rom_printf(
+            errCode == ESP_FAIL ? "[SD] failed to mount filesystem (not FAT?)\r\n"
+                                : "[SD] failed to initialize the card: %s\r\n",
+            esp_err_to_name(errCode));
+#endif
         if (errCode == ESP_FAIL)
         {
             ESP_LOGE(TAG, "Failed to mount filesystem. ");
@@ -102,7 +117,14 @@ bool Storage_MountMMC(bool bit1Mode, int driveIndex)
     ESP_LOGI(TAG, "Initializing SDMMC%d SD card", driveIndex + 1);
 
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+#if (defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32P4))
+    // on these targets SDMMC signals are routed through the GPIO matrix;
+    // 40 MHz (HIGHSPEED) is unreliable there and times out card init on IDF 5.5
+    // (see esp-idf issue #8521) - stay at the default 20 MHz
+    host.max_freq_khz = SDMMC_FREQ_DEFAULT;
+#else
     host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
+#endif
 
     // This initializes the slot without card detect (CD) and write protect (WP) signals.
     // Modify slot_config.gpio_cd and slot_config.gpio_wp if your board has these signals.
@@ -167,6 +189,19 @@ bool Storage_MountMMC(bool bit1Mode, int driveIndex)
     // connected on the bus.
     slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
+#if !CONFIG_NF_BUILD_RTM && (defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32P4))
+    esp_rom_printf(
+        "[SD] mounting SDMMC%d width=%d clk=%d cmd=%d d0=%d d1=%d d2=%d d3=%d\r\n",
+        driveIndex + 1,
+        slot_config.width,
+        slot_config.clk,
+        slot_config.cmd,
+        slot_config.d0,
+        slot_config.d1,
+        slot_config.d2,
+        slot_config.d3);
+#endif
+
     //	Mount the SDCard device as a FAT device on the VFS
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = false,
@@ -182,7 +217,16 @@ bool Storage_MountMMC(bool bit1Mode, int driveIndex)
         errCode = esp_vfs_fat_sdmmc_mount(mountPoint, &host, &slot_config, &mount_config, &card);
     }
 
-    return LogMountResult(errCode);
+    if (!LogMountResult(errCode))
+    {
+        return false;
+    }
+
+    // буква запоминается только при успехе: после отказа card невалиден и
+    // привязывать к нему том нельзя
+    cardDriveLetter = INDEX0_DRIVE_LETTER[0] + driveIndex;
+
+    return true;
 }
 #endif
 
@@ -208,18 +252,18 @@ bool Storage_MountSpi(int spiBus, uint32_t csPin, int driveIndex)
     ESP_LOGI(TAG, "Initializing SPI SD card");
 
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32C6) ||  \
-    defined(CONFIG_IDF_TARGET_ESP32H2)
-    // First available bus on ESP32_C3/S3/C6/H2 is SPI2_HOST
-    host.slot = spiBus + SPI2_HOST;
+
+#if defined(CONFIG_IDF_TARGET_ESP32S2)
+    host.slot = spiBus + SPI3_HOST;
 #else
-    // First available bus on ESP32 is HSPI_HOST(1)
-    host.slot = spiBus + HSPI_HOST;
+    // on all others
+    host.slot = spiBus + SPI2_HOST;
 #endif
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = false,
-        .max_files = 5,
+        // LEDTREES: как и в MMC-ветке — общий лимит открытых файлов SD
+        .max_files = SDC_MAX_OPEN_FILES,
         .allocation_unit_size = 16 * 1024};
 
     // This initializes the slot without card detect (CD) and write protect (WP) signals.
@@ -237,7 +281,16 @@ bool Storage_MountSpi(int spiBus, uint32_t csPin, int driveIndex)
         errCode = esp_vfs_fat_sdspi_mount(mountPoint, &host, &slot_config, &mount_config, &card);
     }
 
-    return LogMountResult(errCode);
+    if (!LogMountResult(errCode))
+    {
+        return false;
+    }
+
+    // буква запоминается только при успехе: после отказа card невалиден и
+    // привязывать к нему том нельзя
+    cardDriveLetter = INDEX0_DRIVE_LETTER[0] + driveIndex;
+
+    return true;
 }
 
 #endif

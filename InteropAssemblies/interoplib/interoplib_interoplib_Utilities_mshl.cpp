@@ -26,3 +26,132 @@ HRESULT Library_interoplib_interoplib_Utilities::NativeGetBaseMac___STATIC__VOID
     }
     NANOCLR_NOCLEANUP();
 }
+
+HRESULT Library_interoplib_interoplib_Utilities::NativeCrc32___STATIC__U4__U4__SZARRAY_U1__I4__I4( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        unsigned int param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT32( stack, 0, param0 ) );
+
+        CLR_RT_TypedArray_UINT8 param1;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8_ARRAY( stack, 1, param1 ) );
+
+        signed int param2;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_INT32( stack, 2, param2 ) );
+
+        signed int param3;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_INT32( stack, 3, param3 ) );
+
+        unsigned int retValue = Utilities::NativeCrc32( param0, param1, param2, param3, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        SetResult_UINT32( stack, retValue );
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_Utilities::NativeSdProbe___STATIC__I4__U1__U2__SZARRAY_U1( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        uint8_t param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 0, param0 ) );
+
+        uint16_t param1;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT16( stack, 1, param1 ) );
+
+        CLR_RT_TypedArray_UINT8 param2;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8_ARRAY( stack, 2, param2 ) );
+
+        signed int retValue = Utilities::NativeSdProbe( param0, param1, param2, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        SetResult_INT32( stack, retValue );
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_Utilities::NativeWifiReconnect___STATIC__VOID( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        Utilities::NativeWifiReconnect(  hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_Utilities::NativeGetResetReason___STATIC__U1( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        uint8_t retValue = Utilities::NativeGetResetReason(  hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        SetResult_UINT8( stack, retValue );
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_Utilities::NativeGetMinFreeHeap___STATIC__U4__BOOLEAN( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        bool param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_bool( stack, 0, param0 ) );
+
+        unsigned int retValue = Utilities::NativeGetMinFreeHeap( param0, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        SetResult_UINT32( stack, retValue );
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_Utilities::NativeGetCoredumpSize___STATIC__U4( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        unsigned int retValue = Utilities::NativeGetCoredumpSize(  hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        SetResult_UINT32( stack, retValue );
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_Utilities::NativeReadCoredump___STATIC__I4__U4__SZARRAY_U1__I4( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        unsigned int param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT32( stack, 0, param0 ) );
+
+        CLR_RT_TypedArray_UINT8 param1;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8_ARRAY( stack, 1, param1 ) );
+
+        signed int param2;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_INT32( stack, 2, param2 ) );
+
+        signed int retValue = Utilities::NativeReadCoredump( param0, param1, param2, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        SetResult_INT32( stack, retValue );
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_Utilities::NativeEraseCoredump___STATIC__BOOLEAN( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        bool retValue = Utilities::NativeEraseCoredump(  hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        SetResult_bool( stack, retValue );
+    }
+    NANOCLR_NOCLEANUP();
+}

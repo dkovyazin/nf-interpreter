@@ -161,10 +161,18 @@ struct Settings
         const CLR_RECORD_ASSEMBLY *header;
 
 #if !defined(BUILD_RTM)
-        CLR_Debug::Printf(" Loading start at %x, end %x\r\n", (unsigned int)assStart, (unsigned int)assEnd);
+        CLR_Debug::Printf(" Loading start at %p, end %p\r\n", assStart, assEnd);
 #endif
 
-        g_buildCRC = SUPPORT_ComputeCRC(assStart, (unsigned int)assEnd - (unsigned int)assStart, 0);
+        FAULT_ON_NULL_ARG(assStart);
+        FAULT_ON_NULL_ARG(assEnd);
+
+        if (assEnd < assStart)
+        {
+            NANOCLR_SET_AND_LEAVE(CLR_E_FAIL);
+        }
+
+        g_buildCRC = SUPPORT_ComputeCRC(assStart, (unsigned int)((uintptr_t)assEnd - (uintptr_t)assStart), 0);
 
         header = (const CLR_RECORD_ASSEMBLY *)assStart;
 
@@ -417,8 +425,10 @@ void ClrStartup(CLR_SETTINGS params)
 
         if (CLR_EE_DBG_IS_NOT(RebootPending))
         {
-#if defined(NANOCLR_ENABLE_SOURCELEVELDEBUGGING)
+            // state mask set unconditionally (see Execution.cpp / StateProgramRunning):
+            // debugger clients read state zero as "initialize"
             CLR_EE_DBG_SET_MASK(StateProgramExited, StateMask);
+#if defined(NANOCLR_ENABLE_SOURCELEVELDEBUGGING)
             CLR_EE_DBG_EVENT_BROADCAST(CLR_DBG_Commands_c_Monitor_ProgramExit, 0, NULL, WP_Flags_c_NonCritical);
 #endif // #if defined(NANOCLR_ENABLE_SOURCELEVELDEBUGGING)
 
@@ -430,11 +440,11 @@ void ClrStartup(CLR_SETTINGS params)
                 {
                     // no proprietary bootloader available, launch nanoBooter
 
-#if (TARGET_HAS_NANOBOOTER == TRUE)
+#if CONFIG_NF_TARGET_HAS_NANOBOOTER
 
                     RequestToLaunchNanoBooter(hr);
                     CPU_Reset();
-#endif // TARGET_HAS_NANOBOOTER
+#endif // CONFIG_NF_TARGET_HAS_NANOBOOTER
                 }
             }
 #endif

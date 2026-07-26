@@ -1,6 +1,6 @@
 //-----------------------------------------------------------------------------
 //
-//                   ** WARNING! **
+//                   ** WARNING! ** 
 //    This file was generated automatically by a tool.
 //    Re-running the tool will overwrite this file.
 //    You should copy this file to a custom location
@@ -23,6 +23,22 @@ namespace interoplib
             // Declaration of stubs. These functions are implemented by Interop code developers
 
             static void NativeGetBaseMac( CLR_RT_TypedArray_UINT8 param0, HRESULT &hr );
+
+            static unsigned int NativeCrc32( unsigned int param0, CLR_RT_TypedArray_UINT8 param1, signed int param2, signed int param3, HRESULT &hr );
+
+            static signed int NativeSdProbe( uint8_t param0, uint16_t param1, CLR_RT_TypedArray_UINT8 param2, HRESULT &hr );
+
+            static void NativeWifiReconnect(  HRESULT &hr );
+
+            static uint8_t NativeGetResetReason(  HRESULT &hr );
+
+            static unsigned int NativeGetMinFreeHeap( bool param0, HRESULT &hr );
+
+            static unsigned int NativeGetCoredumpSize(  HRESULT &hr );
+
+            static signed int NativeReadCoredump( unsigned int param0, CLR_RT_TypedArray_UINT8 param1, signed int param2, HRESULT &hr );
+
+            static bool NativeEraseCoredump(  HRESULT &hr );
 
         };
     }

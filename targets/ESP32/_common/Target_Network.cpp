@@ -1,12 +1,11 @@
-
+﻿
 //
 // Copyright (c) .NET Foundation and Contributors
 // See LICENSE file in the project root for full license information.
 //
 
 #include "NF_ESP32_Network.h"
-#include <esp32_ethernet_options.h>
-
+#include <esp_wifi_types.h>
 //
 // Works with the Target_NetworkConfig to map the Network_Interface_XXXXX calls to the correct driver
 
@@ -45,7 +44,7 @@ int Network_Interface_Open(int index)
 
     switch (networkConfiguration.InterfaceType)
     {
-#if defined(CONFIG_SOC_WIFI_SUPPORTED)
+#if defined(CONFIG_SOC_WIFI_SUPPORTED) || defined(CONFIG_SOC_WIRELESS_HOST_SUPPORTED)
         // Wi-Fi (STA)
         case NetworkInterfaceType_Wireless80211:
             return NF_ESP32_Wireless_Open(&networkConfiguration);
@@ -55,7 +54,7 @@ int Network_Interface_Open(int index)
             return NF_ESP32_WirelessAP_Open(&networkConfiguration);
 #endif
 
-#ifdef ESP32_ETHERNET_SUPPORT
+#if defined(CONFIG_ESP32_ETHERNET_SUPPORT) && CONFIG_ESP32_ETHERNET_SUPPORT == TRUE
         // Ethernet
         case NetworkInterfaceType_Ethernet:
             return NF_ESP32_Ethernet_Open(&networkConfiguration);
@@ -90,7 +89,7 @@ bool Network_Interface_Close(int index)
 
     switch (networkConfiguration.InterfaceType)
     {
-#if defined(CONFIG_SOC_WIFI_SUPPORTED)
+#if defined(CONFIG_SOC_WIFI_SUPPORTED) || defined(CONFIG_SOC_WIRELESS_HOST_SUPPORTED)
         // Wireless
         case NetworkInterfaceType_Wireless80211:
             return NF_ESP32_Wireless_Close();
@@ -100,7 +99,7 @@ bool Network_Interface_Close(int index)
             return NF_ESP32_WirelessAP_Close();
 #endif
 
-#ifdef ESP32_ETHERNET_SUPPORT
+#if defined(CONFIG_ESP32_ETHERNET_SUPPORT) && CONFIG_ESP32_ETHERNET_SUPPORT == TRUE
         // Ethernet
         case NetworkInterfaceType_Ethernet:
             return NF_ESP32_Ethernet_Close();
@@ -116,7 +115,7 @@ bool Network_Interface_Close(int index)
     return false;
 }
 
-#if defined(CONFIG_SOC_WIFI_SUPPORTED)
+#if defined(CONFIG_SOC_WIFI_SUPPORTED) || defined(CONFIG_SOC_WIRELESS_HOST_SUPPORTED)
 int Network_Interface_Start_Scan(int index)
 {
     HAL_Configuration_NetworkInterface networkConfiguration;
@@ -295,6 +294,13 @@ int Network_Interface_Disconnect(int index)
 
 wifi_sta_info_t wireless_sta[ESP_WIFI_MAX_CONN_NUM] = {0};
 
+// The station cache is written by the Wi-Fi event task (station joined / left) and, since the
+// managed GetConnectedStations() refreshes it on every call, by the CLR thread as well. Without
+// this lock the two could interleave inside the struct copy below and hand out a station whose
+// MAC and RSSI come from different snapshots. Held only around the copies, never around the
+// driver call.
+static portMUX_TYPE wirelessStationsLock = portMUX_INITIALIZER_UNLOCKED;
+
 //
 //	Update save stations with rssi
 //
@@ -307,6 +313,8 @@ void Network_Interface_update_Stations()
 
     if (ec == ESP_OK)
     {
+        taskENTER_CRITICAL(&wirelessStationsLock);
+
         // Find save station and update
         for (int x = 0; x < stations.num; x++)
         {
@@ -323,6 +331,8 @@ void Network_Interface_update_Stations()
                 }
             }
         }
+
+        taskEXIT_CRITICAL(&wirelessStationsLock);
     }
 }
 
@@ -333,8 +343,11 @@ void Network_Interface_Add_Station(uint16_t index, uint8_t *macAddress)
 {
     if (index < ESP_WIFI_MAX_CONN_NUM)
     {
+        taskENTER_CRITICAL(&wirelessStationsLock);
         memcpy(wireless_sta[index].mac, macAddress, 6);
         wireless_sta[index].reserved = 1;
+        taskEXIT_CRITICAL(&wirelessStationsLock);
+
         Network_Interface_update_Stations();
     }
 }
@@ -345,7 +358,10 @@ void Network_Interface_Remove_Station(uint16_t index)
 {
     if (index < ESP_WIFI_MAX_CONN_NUM)
     {
+        taskENTER_CRITICAL(&wirelessStationsLock);
         wireless_sta[index].reserved = 0;
+        taskEXIT_CRITICAL(&wirelessStationsLock);
+
         Network_Interface_update_Stations();
     }
 }
@@ -361,6 +377,11 @@ int Network_Interface_Max_Stations()
 //
 bool Network_Interface_Get_Station(uint16_t index, uint8_t *macAddress, uint8_t *rssi, uint32_t *phyModes)
 {
+    bool found = false;
+
+    // same lock as the writers: the caller must get MAC and RSSI of one and the same snapshot
+    taskENTER_CRITICAL(&wirelessStationsLock);
+
     if (wireless_sta[index].reserved)
     {
         memcpy(macAddress, wireless_sta[index].mac, 6);
@@ -368,10 +389,12 @@ bool Network_Interface_Get_Station(uint16_t index, uint8_t *macAddress, uint8_t 
         *phyModes = wireless_sta[index].phy_11b | (wireless_sta[index].phy_11g << 1) |
                     (wireless_sta[index].phy_11n << 2) | (wireless_sta[index].phy_lr << 3);
 
-        return true;
+        found = true;
     }
 
-    return false;
+    taskEXIT_CRITICAL(&wirelessStationsLock);
+
+    return found;
 }
 
 //

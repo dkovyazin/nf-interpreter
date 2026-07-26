@@ -165,7 +165,7 @@ HRESULT Library_sys_net_native_System_Net_NetworkInformation_WirelessAPConfigura
     NativeGetConnectedClients___STATIC__SZARRAY_SystemNetNetworkInformationWirelessAPStation__I4(
         CLR_RT_StackFrame &stack)
 {
-#if defined(PLATFORM_ESP32) && !defined(CONFIG_IDF_TARGET_ESP32H2)
+#if defined(CONFIG_SOC_WIFI_SUPPORTED) || defined(CONFIG_SOC_WIRELESS_HOST_SUPPORTED)
     NANOCLR_HEADER();
 
     CLR_RT_TypeDef_Index apStationTypeDef;
@@ -177,6 +177,11 @@ HRESULT Library_sys_net_native_System_Net_NetworkInformation_WirelessAPConfigura
     uint8_t mac[6];
     uint8_t rssi;
     uint32_t phyModes = 0;
+
+    // The cached station info is refreshed from the driver only on connect/disconnect events,
+    // so without this call the RSSI reported here is a snapshot taken when the last station
+    // joined or left - for a long connected station it can be hours old.
+    Network_Interface_update_Stations();
 
     CLR_RT_HeapBlock &top = stack.PushValue();
 
@@ -224,10 +229,12 @@ HRESULT Library_sys_net_native_System_Net_NetworkInformation_WirelessAPConfigura
                 // dereference the object in order to reach its fields
                 hbObj = apStation->Dereference();
 
-                NANOCLR_CHECK_HRESULT(CLR_RT_HeapBlock_Array::CreateInstance(
-                    hbObj[Library_sys_net_native_System_Net_NetworkInformation_WirelessAPStation::FIELD___macAddress],
-                    6,
-                    g_CLR_RT_WellKnownTypes.m_UInt8));
+                NANOCLR_CHECK_HRESULT(
+                    CLR_RT_HeapBlock_Array::CreateInstance(
+                        hbObj[Library_sys_net_native_System_Net_NetworkInformation_WirelessAPStation::
+                                  FIELD___macAddress],
+                        6,
+                        g_CLR_RT_WellKnownTypes.m_UInt8));
                 memcpy(
                     hbObj[Library_sys_net_native_System_Net_NetworkInformation_WirelessAPStation::FIELD___macAddress]
                         .DereferenceArray()
@@ -263,7 +270,7 @@ HRESULT Library_sys_net_native_System_Net_NetworkInformation_WirelessAPConfigura
 HRESULT Library_sys_net_native_System_Net_NetworkInformation_WirelessAPConfiguration::
     NativeDeauthStation___STATIC__STRING__I4(CLR_RT_StackFrame &stack)
 {
-#if defined(PLATFORM_ESP32) && !defined(CONFIG_IDF_TARGET_ESP32H2)
+#if defined(CONFIG_SOC_WIFI_SUPPORTED) || defined(CONFIG_SOC_WIRELESS_HOST_SUPPORTED)
     NANOCLR_HEADER();
 
     uint16_t index = (uint16_t)stack.Arg0().NumericByRef().u4;

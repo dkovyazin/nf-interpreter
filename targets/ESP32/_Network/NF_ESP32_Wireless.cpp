@@ -7,8 +7,10 @@
 
 #include "NF_ESP32_Network.h"
 #include "esp_netif_net_stack.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
-#if defined(CONFIG_SOC_WIFI_SUPPORTED)
+#if defined(CONFIG_SOC_WIFI_SUPPORTED) || defined(CONFIG_SOC_WIRELESS_HOST_SUPPORTED)
 
 static const char *TAG = "wifi";
 
@@ -20,8 +22,99 @@ static bool IsWifiInitialised = false;
 static esp_netif_t *wifiStaNetif = NULL;
 static esp_netif_t *wifiAPNetif = NULL;
 
+// registration handle for the AP_START -> DHCP server restart handler
+static esp_event_handler_instance_t apStartDhcpsHandler = NULL;
+
+// serialises NF_ESP32_ApDhcpServerStart: it is called both from the init task
+// (the direct belt-and-braces call after AP configuration) and from the AP_START
+// event handler on the system event-loop task. Without this, the two can interleave
+// stop/start on the same dhcps instance. Created once in NF_ESP32_InitaliseWifi
+// before the handler is registered and before esp_wifi_start emits AP_START.
+static SemaphoreHandle_t apDhcpsMutex = NULL;
+
 // flag to signal if connect is to happen
 bool NF_ESP32_IsToConnect = false;
+
+// (re)start the DHCP server on the AP netif and make it the default netif.
+// The AP netif is created without the DHCP-server flag (see NF_ESP32_InitaliseWifi),
+// so esp_netif never starts dhcps on its own.
+static void NF_ESP32_ApDhcpServerStart()
+{
+    if (wifiAPNetif == NULL)
+    {
+        return;
+    }
+
+    // serialise against the other caller (init task vs AP_START event-loop task)
+    if (apDhcpsMutex != NULL)
+    {
+        xSemaphoreTake(apDhcpsMutex, portMAX_DELAY);
+    }
+
+    // ignore stop result: may legitimately be in INIT/STOPPED state
+    esp_err_t ecStop = esp_netif_dhcps_stop(wifiAPNetif);
+
+    // don't advertise a default gateway or DNS server in the DHCP
+    // offers: the SoftAP has no upstream internet, and an advertised
+    // router makes clients route all traffic into the AP, killing
+    // their internet access (phones drop off cellular, laptops with a
+    // second NIC prefer the bogus default route)
+    uint8_t dhcpsOfferOff = 0;
+    esp_netif_dhcps_option(
+        wifiAPNetif,
+        ESP_NETIF_OP_SET,
+        ESP_NETIF_ROUTER_SOLICITATION_ADDRESS,
+        &dhcpsOfferOff,
+        sizeof(dhcpsOfferOff));
+    esp_netif_dhcps_option(
+        wifiAPNetif,
+        ESP_NETIF_OP_SET,
+        ESP_NETIF_DOMAIN_NAME_SERVER,
+        &dhcpsOfferOff,
+        sizeof(dhcpsOfferOff));
+
+    esp_err_t ec = esp_netif_dhcps_start(wifiAPNetif);
+
+#if !CONFIG_NF_BUILD_RTM
+    esp_rom_printf(
+        "[NET-DIAG] AP netif up=%d dhcps stop=0x%x start=0x%x\r\n",
+        (int)esp_netif_is_netif_up(wifiAPNetif),
+        (unsigned)ecStop,
+        (unsigned)ec);
+#else
+    (void)ecStop;
+#endif
+
+    if (ec != ESP_OK && ec != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STARTED)
+    {
+#if !CONFIG_NF_BUILD_RTM
+        esp_rom_printf("[NET-DIAG] AP dhcps start failed 0x%x\r\n", (unsigned)ec);
+#endif
+        // not fatal for the rest of the network stack
+    }
+
+    esp_netif_set_default_netif(wifiAPNetif);
+
+    if (apDhcpsMutex != NULL)
+    {
+        xSemaphoreGive(apDhcpsMutex);
+    }
+}
+
+// WIFI_EVENT_AP_START handler: every AP (re)start must bring the DHCP server
+// back up — esp_wifi_set_config bounces the AP (AP_STOP stops dhcps and,
+// without the DHCP-server netif flag, nothing restarts it). This handler is
+// registered AFTER esp_netif_create_default_wifi_ap so it runs after the
+// default esp_netif handler has brought the netif up.
+static void NF_ESP32_OnApStart(void *arg, esp_event_base_t eventBase, int32_t eventId, void *eventData)
+{
+    (void)arg;
+    (void)eventBase;
+    (void)eventId;
+    (void)eventData;
+
+    NF_ESP32_ApDhcpServerStart();
+}
 
 //
 //  Check what is the required Wi-Fi mode
@@ -112,6 +205,40 @@ wifi_mode_t NF_ESP32_GetCurrentWifiMode()
     return current_wifi_mode;
 }
 
+// OTA confirm network gate (targetHAL_Ota.c, C linkage; overrides its weak
+// fallback). When the STORED configuration expects a SoftAP, the AP must be
+// actually serving before an update may be confirmed: driver reached AP mode,
+// netif is up, DHCP server started. Judging by the stored expectation (not the
+// driver state) keeps the gate fail-closed when Wi-Fi init died before ever
+// reaching AP mode - a device confirmed in that state would be unreachable for
+// any future update. Lives here so the AP netif and dhcps knowledge stay in
+// the network module.
+extern "C" bool NF_ESP32_IsApServingIfExpected()
+{
+    wifi_mode_t expectedMode = NF_ESP32_CheckExpectedWifiMode();
+    if (expectedMode != WIFI_MODE_AP && expectedMode != WIFI_MODE_APSTA)
+    {
+        // no AP expected by configuration: nothing to verify here
+        return true;
+    }
+
+    wifi_mode_t mode;
+    if (esp_wifi_get_mode(&mode) != ESP_OK || (mode != WIFI_MODE_AP && mode != WIFI_MODE_APSTA))
+    {
+        // AP expected but the driver never reached AP mode
+        return false;
+    }
+
+    if (wifiAPNetif == NULL || !esp_netif_is_netif_up(wifiAPNetif))
+    {
+        return false;
+    }
+
+    esp_netif_dhcp_status_t dhcpsStatus;
+    return esp_netif_dhcps_get_status(wifiAPNetif, &dhcpsStatus) == ESP_OK &&
+           dhcpsStatus == ESP_NETIF_DHCP_STARTED;
+}
+
 void NF_ESP32_DeinitWifi()
 {
     // clear flags
@@ -120,6 +247,12 @@ void NF_ESP32_DeinitWifi()
 
     esp_wifi_stop();
 
+    if (apStartDhcpsHandler != NULL)
+    {
+        esp_event_handler_instance_unregister(WIFI_EVENT, WIFI_EVENT_AP_START, apStartDhcpsHandler);
+        apStartDhcpsHandler = NULL;
+    }
+
     esp_netif_destroy_default_wifi(wifiStaNetif);
     wifiStaNetif = NULL;
     esp_netif_destroy_default_wifi(wifiAPNetif);
@@ -127,6 +260,8 @@ void NF_ESP32_DeinitWifi()
 
     esp_wifi_deinit();
 }
+
+extern "C" esp_err_t esp_hosted_init(void);
 
 esp_err_t NF_ESP32_InitaliseWifi()
 {
@@ -152,8 +287,19 @@ esp_err_t NF_ESP32_InitaliseWifi()
 
     if (!IsWifiInitialised)
     {
+#if defined(CONFIG_SOC_WIRELESS_HOST_SUPPORTED)
+        esp_hosted_init();
+#endif
         // create Wi-Fi STA (ignoring return)
-        wifiStaNetif = esp_netif_create_default_wifi_sta();
+        // guard как у apStartDhcpsHandler ниже: init, упавший в одном из
+        // return'ов дальше, оставляет netif созданным при IsWifiInitialised ==
+        // false — ретрай Open заходит сюда снова и без guard'а создавал бы
+        // второй default-netif с тем же ключом (утечка + отказ attach).
+        // DeinitWifi обнуляет указатель, чистый re-init создаёт заново.
+        if (wifiStaNetif == NULL)
+        {
+            wifiStaNetif = esp_netif_create_default_wifi_sta();
+        }
 
         // Set static address if configured
         // ignore any errors
@@ -170,13 +316,41 @@ esp_err_t NF_ESP32_InitaliseWifi()
         if (expectedWifiMode & WIFI_MODE_AP)
         {
             // create AP (ignoring return)
-            wifiAPNetif = esp_netif_create_default_wifi_ap();
+            // тот же guard от повторного создания при ретрае, что и для STA
+            if (wifiAPNetif == NULL)
+            {
+                wifiAPNetif = esp_netif_create_default_wifi_ap();
+            }
 
             // Remove DHCP server flag as not configured in sdkconfig, DHCP server done in managed code
             // Otherwise startup hangs
             if (wifiAPNetif)
             {
                 wifiAPNetif->flags = (esp_netif_flags_t)(ESP_NETIF_FLAG_AUTOUP);
+
+                // create the dhcps serialisation mutex before the handler can fire
+                if (apDhcpsMutex == NULL)
+                {
+                    apDhcpsMutex = xSemaphoreCreateMutex();
+                }
+
+                // registered here (after esp_netif_create_default_wifi_ap and before
+                // esp_wifi_start) so it runs after the default esp_netif AP handler
+                // and no AP_START event is missed.
+                // guard: an earlier init that failed after this point (any of the
+                // returns below) leaves IsWifiInitialised false without unregistering,
+                // so a retried Open re-enters here; without this guard it would
+                // register a second instance (leaking the first, firing the handler
+                // twice). DeinitWifi nulls the handle, so a clean re-init still registers.
+                if (apStartDhcpsHandler == NULL)
+                {
+                    esp_event_handler_instance_register(
+                        WIFI_EVENT,
+                        WIFI_EVENT_AP_START,
+                        &NF_ESP32_OnApStart,
+                        NULL,
+                        &apStartDhcpsHandler);
+                }
             }
         }
 
@@ -193,9 +367,7 @@ esp_err_t NF_ESP32_InitaliseWifi()
             cfg.feature_caps &= ~CONFIG_FEATURE_CACHE_TX_BUF_BIT;
         }
 #endif
-
         ec = esp_wifi_init(&cfg);
-
         if (ec != ESP_OK)
         {
             return ec;
@@ -208,6 +380,15 @@ esp_err_t NF_ESP32_InitaliseWifi()
             return ec;
         }
 
+#if CONFIG_SOC_WIFI_SUPPORT_5G
+        wifi_band_mode_t band_mode;
+        ec = esp_wifi_get_band_mode(&band_mode);
+        if (ec == ESP_OK)
+        {
+            ESP_LOGI(TAG, "Current Wi-Fi band mode: %d\n", band_mode);
+        }
+#endif
+
         // start Wi-Fi
         ec = esp_wifi_start();
         if (ec != ESP_OK)
@@ -215,28 +396,25 @@ esp_err_t NF_ESP32_InitaliseWifi()
             return ec;
         }
 
+        // LEDTREES: disable Wi-Fi power save. The IDF default is WIFI_PS_MIN_MODEM,
+        // which lets the STA modem sleep between DTIM beacons and throttles TCP
+        // throughput. Programs and OTA bundles are served over TCP through a single
+        // SoftAP radio where aggregate bandwidth and minimal airtime idle matter most
+        // (program distribution / DownloadService). WIFI_PS_NONE keeps the radio always on.
+        // The setting is global for the STA path and harmless in AP/APSTA mode.
+        // Non-fatal: on failure fall through with the default power-save mode.
+        esp_err_t ecPs = esp_wifi_set_ps(WIFI_PS_NONE);
+        if (ecPs != ESP_OK)
+        {
+#if !CONFIG_NF_BUILD_RTM
+            esp_rom_printf("[NET-DIAG] esp_wifi_set_ps(NONE) failed 0x%x\r\n", (unsigned)ecPs);
+#endif
+        }
+
         // if need, config the AP
         // this can only be performed after Wi-Fi is started
         if (expectedWifiMode & WIFI_MODE_AP)
         {
-            ec = esp_netif_dhcps_stop(wifiAPNetif);
-            if (ec != ESP_OK)
-            {
-                return ec;
-            }
-
-            ec = esp_netif_dhcps_start(wifiAPNetif);
-            if (ec != ESP_OK)
-            {
-                return ec;
-            }
-
-            //ec = esp_netif_set_default_netif(wifiAPNetif);
-            //if (ec != ESP_OK)
-            //{
-            //    return ec;
-            //}
-
             HAL_Configuration_NetworkInterface *networkConfig =
                 (HAL_Configuration_NetworkInterface *)platform_malloc(sizeof(HAL_Configuration_NetworkInterface));
             if (networkConfig == NULL)
@@ -256,6 +434,24 @@ esp_err_t NF_ESP32_InitaliseWifi()
             {
                 return ec;
             }
+
+            // LEDTREES: start the DHCP server on the AP interface (LWIP_DHCPS is
+            // enabled in the lt sdkconfig); the AUTOUP-only netif flags above keep
+            // esp_netif from doing it automatically.
+            // The AP_START handler restarts dhcps on every AP (re)start, including
+            // the bounce esp_wifi_set_config causes; this direct call is a belt-and-
+            // braces fallback for the steady state (idempotent: ALREADY_STARTED ok).
+            // dhcps only really starts when the netif is up, and AP events are
+            // processed asynchronously - wait for the netif to come up first.
+            {
+                int retries = 40;
+                while (retries-- > 0 && !esp_netif_is_netif_up(wifiAPNetif))
+                {
+                    vTaskDelay(pdMS_TO_TICKS(50));
+                }
+            }
+
+            NF_ESP32_ApDhcpServerStart();
         }
 
         IsWifiInitialised = true;
@@ -366,6 +562,8 @@ int NF_ESP32_Wireless_Open(HAL_Configuration_NetworkInterface *config)
         NF_ESP32_IsToConnect = false;
     }
 
+// ESP32-P4 doesn't currently have smartconfig support so disable
+#if !defined(CONFIG_SOC_WIRELESS_HOST_SUPPORTED)
     if (okToStartSmartConnect &&
         (wirelessConfig->Options & Wireless80211Configuration_ConfigurationOptions_SmartConfig))
     {
@@ -375,6 +573,7 @@ int NF_ESP32_Wireless_Open(HAL_Configuration_NetworkInterface *config)
         // clear flag
         NF_ESP32_IsToConnect = false;
     }
+#endif
 
     return NF_ESP32_Wait_NetNumber(IDF_WIFI_STA_DEF);
 }
