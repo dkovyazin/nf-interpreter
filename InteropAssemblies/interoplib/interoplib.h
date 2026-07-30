@@ -42,7 +42,7 @@ struct Library_interoplib_interoplib_FrameDecoder
 
 struct Library_interoplib_interoplib_LedPixelController
 {
-    NANOCLR_NATIVE_DECLARE(NativeInit___STATIC__VOID__I4__I4__I4__I4__I4__U1__U1__U1);
+    NANOCLR_NATIVE_DECLARE(NativeInit___STATIC__VOID__I4__I4__I4__I4__I4__U1__U1__U1__U1);
     NANOCLR_NATIVE_DECLARE(NativeSetBrightness___STATIC__VOID__U1);
     NANOCLR_NATIVE_DECLARE(NativePrepareForPlay___STATIC__VOID__U2__SZARRAY_U1);
     NANOCLR_NATIVE_DECLARE(NativeStartPlay___STATIC__VOID__U2__U1__U1__U2);
@@ -56,6 +56,8 @@ struct Library_interoplib_interoplib_LedPixelController
     NANOCLR_NATIVE_DECLARE(NativeGetFeedReadErrors___STATIC__I4);
     NANOCLR_NATIVE_DECLARE(NativeSetRemap___STATIC__VOID__SZARRAY_U1);
     NANOCLR_NATIVE_DECLARE(NativeSetHighlight___STATIC__VOID__U1__U2__U2__U2);
+    NANOCLR_NATIVE_DECLARE(NativeSetPowerLimit___STATIC__VOID__U1);
+    NANOCLR_NATIVE_DECLARE(NativeGetPowerLimitedFrames___STATIC__I4);
 
     //--//
 };

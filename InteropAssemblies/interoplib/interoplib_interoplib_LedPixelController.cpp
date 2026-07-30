@@ -48,6 +48,7 @@ void LedPixelController::NativeInit(
     uint8_t red,
     uint8_t green,
     uint8_t blue,
+    uint8_t powerLimitPercent,
     HRESULT &hr)
 {
     lt_led_config_t config;
@@ -59,6 +60,10 @@ void LedPixelController::NativeInit(
     config.initRed = red;
     config.initGreen = green;
     config.initBlue = blue;
+    // Ограничитель мощности — заводская доля из конфигурации сборки
+    // (ledtrees-esp32 docs/assembly.md); 0 либо >= 100 компонент понимает как
+    // «лимитера нет».
+    config.powerLimitPercent = powerLimitPercent;
 
     hr = ToHResult(lt_led_init(&config));
 }
@@ -104,6 +109,21 @@ void LedPixelController::NativeSetRemap( CLR_RT_TypedArray_UINT8 param0, HRESULT
 void LedPixelController::NativeSetHighlight( uint8_t line, uint16_t start, uint16_t count, uint16_t blinkMs, HRESULT &hr )
 {
     hr = ToHResult(lt_led_set_highlight(line, start, count, blinkMs));
+}
+
+// Смена доли ограничителя мощности на ходу. Штатно значение приезжает один раз
+// в NativeInit из конфигурации сборки; этот путь — для сервисного подбора и
+// будущего управления с MAIN.
+void LedPixelController::NativeSetPowerLimit( uint8_t percent, HRESULT &hr )
+{
+    hr = ToHResult(lt_led_set_power_limit(percent));
+}
+
+// Кадров, вышедших с урезанной ограничителем яркостью, за время работы.
+signed int LedPixelController::NativeGetPowerLimitedFrames( HRESULT &hr )
+{
+    hr = S_OK;
+    return lt_led_get_power_limited_frames();
 }
 
 // Ре-якорь SyncPlay: сверить свою позицию с кадром, который группа играет прямо

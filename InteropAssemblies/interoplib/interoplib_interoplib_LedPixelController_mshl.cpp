@@ -12,7 +12,7 @@
 using namespace interoplib::interoplib;
 
 
-HRESULT Library_interoplib_interoplib_LedPixelController::NativeInit___STATIC__VOID__I4__I4__I4__I4__I4__U1__U1__U1( CLR_RT_StackFrame& stack )
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeInit___STATIC__VOID__I4__I4__I4__I4__I4__U1__U1__U1__U1( CLR_RT_StackFrame& stack )
 {
     NANOCLR_HEADER(); hr = S_OK;
     {
@@ -41,7 +41,10 @@ HRESULT Library_interoplib_interoplib_LedPixelController::NativeInit___STATIC__V
         uint8_t param7;
         NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 7, param7 ) );
 
-        LedPixelController::NativeInit( param0, param1, param2, param3, param4, param5, param6, param7, hr );
+        uint8_t param8;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 8, param8 ) );
+
+        LedPixelController::NativeInit( param0, param1, param2, param3, param4, param5, param6, param7, param8, hr );
         NANOCLR_CHECK_HRESULT( hr );
 
     }
@@ -290,6 +293,33 @@ HRESULT Library_interoplib_interoplib_LedPixelController::NativeSetHighlight___S
         LedPixelController::NativeSetHighlight( param0, param1, param2, param3, hr );
         NANOCLR_CHECK_HRESULT( hr );
 
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeSetPowerLimit___STATIC__VOID__U1( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        uint8_t param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 0, param0 ) );
+
+        LedPixelController::NativeSetPowerLimit( param0, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeGetPowerLimitedFrames___STATIC__I4( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        signed int retValue = LedPixelController::NativeGetPowerLimitedFrames(  hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        SetResult_INT32( stack, retValue );
     }
     NANOCLR_NOCLEANUP();
 }
