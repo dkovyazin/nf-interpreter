@@ -126,6 +126,35 @@ signed int LedPixelController::NativeGetPowerLimitedFrames( HRESULT &hr )
     return lt_led_get_power_limited_frames();
 }
 
+// Цветовые фильтры воспроизведения (ledtrees-esp32 docs/color-filters.md):
+// матрица 3×3 Q8 и палитра luma→RGB. Пустые массивы — снять; битые длины
+// компонент отвергает молча, действующие таблицы не трогая (валидация — на
+// managed-стороне, как у SetRemap).
+
+void LedPixelController::NativeSetColorMatrix( CLR_RT_TypedArray_INT16 m9q8, HRESULT &hr )
+{
+    hr = ToHResult(lt_led_set_color_matrix(m9q8.GetBuffer(), m9q8.GetSize()));
+}
+
+void LedPixelController::NativeSetColorLut( CLR_RT_TypedArray_UINT8 lut, HRESULT &hr )
+{
+    hr = ToHResult(lt_led_set_color_lut(lut.GetBuffer(), lut.GetSize()));
+}
+
+void LedPixelController::NativeSetColorLutEnabled( bool enabled, HRESULT &hr )
+{
+    hr = ToHResult(lt_led_set_color_lut_enabled(enabled ? 1 : 0));
+}
+
+// Статистика компоновки кадра воспроизведения с прошлого вызова, упакованная
+// (avg << 16) | max в микросекундах; 0 — кадров не было. Диагностика: IDF-логи
+// в прошивке вырезаны компиляцией, натив копит — логирует managed.
+signed int LedPixelController::NativeGetComposeStats( HRESULT &hr )
+{
+    hr = S_OK;
+    return lt_led_get_compose_stats();
+}
+
 // Ре-якорь SyncPlay: сверить свою позицию с кадром, который группа играет прямо
 // сейчас. Возвращает назначенную коррекцию в кадрах; 0 — в фазе либо очень
 // близкая коррекция уже идёт.

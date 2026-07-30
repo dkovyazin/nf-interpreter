@@ -54,6 +54,14 @@ namespace interoplib
 
             static signed int NativeGetPowerLimitedFrames(  HRESULT &hr );
 
+            static void NativeSetColorMatrix( CLR_RT_TypedArray_INT16 param0, HRESULT &hr );
+
+            static void NativeSetColorLut( CLR_RT_TypedArray_UINT8 param0, HRESULT &hr );
+
+            static void NativeSetColorLutEnabled( bool param0, HRESULT &hr );
+
+            static signed int NativeGetComposeStats(  HRESULT &hr );
+
         };
     }
 }

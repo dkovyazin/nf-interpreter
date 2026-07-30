@@ -58,6 +58,10 @@ struct Library_interoplib_interoplib_LedPixelController
     NANOCLR_NATIVE_DECLARE(NativeSetHighlight___STATIC__VOID__U1__U2__U2__U2);
     NANOCLR_NATIVE_DECLARE(NativeSetPowerLimit___STATIC__VOID__U1);
     NANOCLR_NATIVE_DECLARE(NativeGetPowerLimitedFrames___STATIC__I4);
+    NANOCLR_NATIVE_DECLARE(NativeSetColorMatrix___STATIC__VOID__SZARRAY_I2);
+    NANOCLR_NATIVE_DECLARE(NativeSetColorLut___STATIC__VOID__SZARRAY_U1);
+    NANOCLR_NATIVE_DECLARE(NativeSetColorLutEnabled___STATIC__VOID__BOOLEAN);
+    NANOCLR_NATIVE_DECLARE(NativeGetComposeStats___STATIC__I4);
 
     //--//
 };

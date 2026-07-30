@@ -42,6 +42,10 @@ static const CLR_RT_MethodHandler method_lookup[] =
     NULL,
     NULL,
     NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
     Library_interoplib_interoplib_LedPixelController::NativeInit___STATIC__VOID__I4__I4__I4__I4__I4__U1__U1__U1__U1,
     Library_interoplib_interoplib_LedPixelController::NativeSetBrightness___STATIC__VOID__U1,
     Library_interoplib_interoplib_LedPixelController::NativePrepareForPlay___STATIC__VOID__U2__SZARRAY_U1,
@@ -58,6 +62,10 @@ static const CLR_RT_MethodHandler method_lookup[] =
     Library_interoplib_interoplib_LedPixelController::NativeSetHighlight___STATIC__VOID__U1__U2__U2__U2,
     Library_interoplib_interoplib_LedPixelController::NativeSetPowerLimit___STATIC__VOID__U1,
     Library_interoplib_interoplib_LedPixelController::NativeGetPowerLimitedFrames___STATIC__I4,
+    Library_interoplib_interoplib_LedPixelController::NativeSetColorMatrix___STATIC__VOID__SZARRAY_I2,
+    Library_interoplib_interoplib_LedPixelController::NativeSetColorLut___STATIC__VOID__SZARRAY_U1,
+    Library_interoplib_interoplib_LedPixelController::NativeSetColorLutEnabled___STATIC__VOID__BOOLEAN,
+    Library_interoplib_interoplib_LedPixelController::NativeGetComposeStats___STATIC__I4,
     NULL,
     NULL,
     NULL,
@@ -109,7 +117,7 @@ static const CLR_RT_MethodHandler method_lookup[] =
 const CLR_RT_NativeAssemblyData g_CLR_AssemblyNative_interoplib =
 {
     "interoplib",
-    0x945C1445,
+    0x1986812E,
     method_lookup,
     { 2, 0, 0, 0 }
 };
