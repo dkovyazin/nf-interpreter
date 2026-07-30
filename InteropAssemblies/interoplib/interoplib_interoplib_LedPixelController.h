@@ -62,6 +62,8 @@ namespace interoplib
 
             static signed int NativeGetComposeStats(  HRESULT &hr );
 
+            static void NativeSetOutputCorrection( uint16_t param0, uint8_t param1, uint16_t param2, uint16_t param3, uint16_t param4, int16_t param5, HRESULT &hr );
+
         };
     }
 }

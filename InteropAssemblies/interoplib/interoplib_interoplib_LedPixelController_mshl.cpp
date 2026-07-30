@@ -380,3 +380,33 @@ HRESULT Library_interoplib_interoplib_LedPixelController::NativeGetComposeStats_
     }
     NANOCLR_NOCLEANUP();
 }
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeSetOutputCorrection___STATIC__VOID__U2__U1__U2__U2__U2__I2( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        uint16_t param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT16( stack, 0, param0 ) );
+
+        uint8_t param1;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 1, param1 ) );
+
+        uint16_t param2;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT16( stack, 2, param2 ) );
+
+        uint16_t param3;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT16( stack, 3, param3 ) );
+
+        uint16_t param4;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT16( stack, 4, param4 ) );
+
+        int16_t param5;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_INT16( stack, 5, param5 ) );
+
+        LedPixelController::NativeSetOutputCorrection( param0, param1, param2, param3, param4, param5, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}

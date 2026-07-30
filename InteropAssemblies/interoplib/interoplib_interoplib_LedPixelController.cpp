@@ -146,6 +146,15 @@ void LedPixelController::NativeSetColorLutEnabled( bool enabled, HRESULT &hr )
     hr = ToHResult(lt_led_set_color_lut_enabled(enabled ? 1 : 0));
 }
 
+// Рантайм-цветокоррекция (ledtrees-esp32 docs/color-filters.md, фаза 3):
+// параметры, а не таблица — натив вставляет яркость до гаммы сам. gammaQ8 == 0
+// — сброс на compile-time дефолты; негодные диапазоны компонент отвергает
+// молча (S_FALSE), managed-обёртка валидирует те же границы заранее.
+void LedPixelController::NativeSetOutputCorrection( uint16_t gammaQ8, uint8_t blackPoint, uint16_t wbR, uint16_t wbG, uint16_t wbB, int16_t contrastQ8, HRESULT &hr )
+{
+    hr = ToHResult(lt_led_set_output_correction(gammaQ8, blackPoint, wbR, wbG, wbB, contrastQ8));
+}
+
 // Статистика компоновки кадра воспроизведения с прошлого вызова, упакованная
 // (avg << 16) | max в микросекундах; 0 — кадров не было. Диагностика: IDF-логи
 // в прошивке вырезаны компиляцией, натив копит — логирует managed.
