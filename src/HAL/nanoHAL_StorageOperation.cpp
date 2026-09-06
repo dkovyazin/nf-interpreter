@@ -74,6 +74,16 @@ uint32_t HAL_StorageOperation(uint8_t operation, uint32_t dataLength, uint32_t o
             }
         }
 
+        // LEDTREES: drop an existing file, so the write always starts from an
+        // empty one. Open() below does not truncate: a file system driver that
+        // opens an existing file for R/W (that's what the ESP32 littlefs driver
+        // does with "r+") keeps the previous length, and the very first Append
+        // chunk then fails the "seek(END) == offset" check further down - a file
+        // larger than the first chunk can never be overwritten. The ESP32
+        // implementation this code replaced (PR #3502) called remove() here.
+        // Result ignored on purpose: a missing file is the normal case.
+        volume->Delete(relativePath, false);
+
         // open the file (creates it, if it doesn't exist)
         if (FAILED(volume->Open(relativePath, fileHandle)))
         {
