@@ -22,7 +22,7 @@ namespace interoplib
             // Helper Functions to access fields of managed object
             // Declaration of stubs. These functions are implemented by Interop code developers
 
-            static void NativeInit( signed int param0, signed int param1, signed int param2, signed int param3, signed int param4, uint8_t param5, uint8_t param6, uint8_t param7, HRESULT &hr );
+            static void NativeInit( signed int param0, signed int param1, signed int param2, signed int param3, signed int param4, uint8_t param5, uint8_t param6, uint8_t param7, uint8_t param8, HRESULT &hr );
 
             static void NativeSetBrightness( uint8_t param0, HRESULT &hr );
 
@@ -50,13 +50,27 @@ namespace interoplib
 
             static void NativeSetHighlight( uint8_t param0, uint16_t param1, uint16_t param2, uint16_t param3, HRESULT &hr );
 
+            static void NativeSetPowerLimit( uint8_t param0, HRESULT &hr );
+
+            static signed int NativeGetPowerLimitedFrames(  HRESULT &hr );
+
+            static void NativeSetColorMatrix( CLR_RT_TypedArray_INT16 param0, HRESULT &hr );
+
+            static void NativeSetColorLut( CLR_RT_TypedArray_UINT8 param0, HRESULT &hr );
+
+            static void NativeSetColorLutEnabled( bool param0, HRESULT &hr );
+
+            static signed int NativeGetComposeStats(  HRESULT &hr );
+
+            static void NativeSetOutputCorrection( uint16_t param0, uint8_t param1, uint16_t param2, uint16_t param3, uint16_t param4, int16_t param5, HRESULT &hr );
+
         };
     }
 }
+
+#endif // INTEROPLIB_INTEROPLIB_INTEROPLIB_LEDPIXELCONTROLLER_H
 
 // LEDTREES: ручных деклараций поверх генерата здесь больше нет — задачи
 // вывода/подкормки и SPI уехали внутрь компонента ledtrees_ledpixel
 // (репозиторий ledtrees-idf-components) и снаружи не видны. Файл теперь чистый
 // генерат: при регенерации из Stubs его можно копировать как есть.
-
-#endif // INTEROPLIB_INTEROPLIB_INTEROPLIB_LEDPIXELCONTROLLER_H

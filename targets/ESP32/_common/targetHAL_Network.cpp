@@ -26,7 +26,12 @@ extern esp_netif_t *WifiStationEspNetif;
 // #define 	PRINT_NET_EVENT 	1
 
 // buffer with host name
-char hostName[18] = "nanodevice_";
+// LEDTREES: свой префикс вместо апстримного "nanodevice_" — в DHCP-таблице
+// роутера (провижининг-сеть цеха, сеть покупателя) платы видны как свои.
+// Суффикс — те же три младших байта base MAC, что в deploy.json и в имени
+// setup-точки LedTrees_config_XXXXXX. При смене длины префикса поправить
+// смещение в compose_esp32_hostname.
+char hostName[18] = "ledtrees_";
 
 //
 // Call-back from LWIP on event
@@ -121,10 +126,10 @@ static void initialize_sntp()
 
 static void compose_esp32_hostname()
 {
-    // compose host name with nanodevice and last 3 bytes of MAC address
-    // nanodevice_XXXXXX
+    // compose host name with prefix and last 3 bytes of MAC address
+    // LEDTREES: ledtrees_XXXXXX (см. hostName выше); смещение — длина префикса
     uint8_t mac[6];
-    char *macPosition = hostName + 11;
+    char *macPosition = hostName + 9;
 
     // get MAC address
     esp_efuse_mac_get_default(mac);

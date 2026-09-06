@@ -48,6 +48,7 @@ void LedPixelController::NativeInit(
     uint8_t red,
     uint8_t green,
     uint8_t blue,
+    uint8_t powerLimitPercent,
     HRESULT &hr)
 {
     lt_led_config_t config;
@@ -59,6 +60,10 @@ void LedPixelController::NativeInit(
     config.initRed = red;
     config.initGreen = green;
     config.initBlue = blue;
+    // Ограничитель мощности — заводская доля из конфигурации сборки
+    // (ledtrees-esp32 docs/assembly.md); 0 либо >= 100 компонент понимает как
+    // «лимитера нет».
+    config.powerLimitPercent = powerLimitPercent;
 
     hr = ToHResult(lt_led_init(&config));
 }
@@ -104,6 +109,59 @@ void LedPixelController::NativeSetRemap( CLR_RT_TypedArray_UINT8 param0, HRESULT
 void LedPixelController::NativeSetHighlight( uint8_t line, uint16_t start, uint16_t count, uint16_t blinkMs, HRESULT &hr )
 {
     hr = ToHResult(lt_led_set_highlight(line, start, count, blinkMs));
+}
+
+// Смена доли ограничителя мощности на ходу. Штатно значение приезжает один раз
+// в NativeInit из конфигурации сборки; этот путь — для сервисного подбора и
+// будущего управления с MAIN.
+void LedPixelController::NativeSetPowerLimit( uint8_t percent, HRESULT &hr )
+{
+    hr = ToHResult(lt_led_set_power_limit(percent));
+}
+
+// Кадров, вышедших с урезанной ограничителем яркостью, за время работы.
+signed int LedPixelController::NativeGetPowerLimitedFrames( HRESULT &hr )
+{
+    hr = S_OK;
+    return lt_led_get_power_limited_frames();
+}
+
+// Цветовые фильтры воспроизведения (ledtrees-esp32 docs/color-filters.md):
+// матрица 3×3 Q8 и палитра luma→RGB. Пустые массивы — снять; битые длины
+// компонент отвергает молча, действующие таблицы не трогая (валидация — на
+// managed-стороне, как у SetRemap).
+
+void LedPixelController::NativeSetColorMatrix( CLR_RT_TypedArray_INT16 m9q8, HRESULT &hr )
+{
+    hr = ToHResult(lt_led_set_color_matrix(m9q8.GetBuffer(), m9q8.GetSize()));
+}
+
+void LedPixelController::NativeSetColorLut( CLR_RT_TypedArray_UINT8 lut, HRESULT &hr )
+{
+    hr = ToHResult(lt_led_set_color_lut(lut.GetBuffer(), lut.GetSize()));
+}
+
+void LedPixelController::NativeSetColorLutEnabled( bool enabled, HRESULT &hr )
+{
+    hr = ToHResult(lt_led_set_color_lut_enabled(enabled ? 1 : 0));
+}
+
+// Рантайм-цветокоррекция (ledtrees-esp32 docs/color-filters.md, фаза 3):
+// параметры, а не таблица — натив вставляет яркость до гаммы сам. gammaQ8 == 0
+// — сброс на compile-time дефолты; негодные диапазоны компонент отвергает
+// молча (S_FALSE), managed-обёртка валидирует те же границы заранее.
+void LedPixelController::NativeSetOutputCorrection( uint16_t gammaQ8, uint8_t blackPoint, uint16_t wbR, uint16_t wbG, uint16_t wbB, int16_t contrastQ8, HRESULT &hr )
+{
+    hr = ToHResult(lt_led_set_output_correction(gammaQ8, blackPoint, wbR, wbG, wbB, contrastQ8));
+}
+
+// Статистика компоновки кадра воспроизведения с прошлого вызова, упакованная
+// (avg << 16) | max в микросекундах; 0 — кадров не было. Диагностика: IDF-логи
+// в прошивке вырезаны компиляцией, натив копит — логирует managed.
+signed int LedPixelController::NativeGetComposeStats( HRESULT &hr )
+{
+    hr = S_OK;
+    return lt_led_get_compose_stats();
 }
 
 // Ре-якорь SyncPlay: сверить свою позицию с кадром, который группа играет прямо

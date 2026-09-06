@@ -12,7 +12,7 @@
 using namespace interoplib::interoplib;
 
 
-HRESULT Library_interoplib_interoplib_LedPixelController::NativeInit___STATIC__VOID__I4__I4__I4__I4__I4__U1__U1__U1( CLR_RT_StackFrame& stack )
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeInit___STATIC__VOID__I4__I4__I4__I4__I4__U1__U1__U1__U1( CLR_RT_StackFrame& stack )
 {
     NANOCLR_HEADER(); hr = S_OK;
     {
@@ -41,7 +41,10 @@ HRESULT Library_interoplib_interoplib_LedPixelController::NativeInit___STATIC__V
         uint8_t param7;
         NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 7, param7 ) );
 
-        LedPixelController::NativeInit( param0, param1, param2, param3, param4, param5, param6, param7, hr );
+        uint8_t param8;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 8, param8 ) );
+
+        LedPixelController::NativeInit( param0, param1, param2, param3, param4, param5, param6, param7, param8, hr );
         NANOCLR_CHECK_HRESULT( hr );
 
     }
@@ -288,6 +291,120 @@ HRESULT Library_interoplib_interoplib_LedPixelController::NativeSetHighlight___S
         NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT16( stack, 3, param3 ) );
 
         LedPixelController::NativeSetHighlight( param0, param1, param2, param3, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeSetPowerLimit___STATIC__VOID__U1( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        uint8_t param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 0, param0 ) );
+
+        LedPixelController::NativeSetPowerLimit( param0, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeGetPowerLimitedFrames___STATIC__I4( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        signed int retValue = LedPixelController::NativeGetPowerLimitedFrames(  hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        SetResult_INT32( stack, retValue );
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeSetColorMatrix___STATIC__VOID__SZARRAY_I2( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        CLR_RT_TypedArray_INT16 param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_INT16_ARRAY( stack, 0, param0 ) );
+
+        LedPixelController::NativeSetColorMatrix( param0, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeSetColorLut___STATIC__VOID__SZARRAY_U1( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        CLR_RT_TypedArray_UINT8 param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8_ARRAY( stack, 0, param0 ) );
+
+        LedPixelController::NativeSetColorLut( param0, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeSetColorLutEnabled___STATIC__VOID__BOOLEAN( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        bool param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_bool( stack, 0, param0 ) );
+
+        LedPixelController::NativeSetColorLutEnabled( param0, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeGetComposeStats___STATIC__I4( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        signed int retValue = LedPixelController::NativeGetComposeStats(  hr );
+        NANOCLR_CHECK_HRESULT( hr );
+        SetResult_INT32( stack, retValue );
+    }
+    NANOCLR_NOCLEANUP();
+}
+
+HRESULT Library_interoplib_interoplib_LedPixelController::NativeSetOutputCorrection___STATIC__VOID__U2__U1__U2__U2__U2__I2( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        uint16_t param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT16( stack, 0, param0 ) );
+
+        uint8_t param1;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT8( stack, 1, param1 ) );
+
+        uint16_t param2;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT16( stack, 2, param2 ) );
+
+        uint16_t param3;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT16( stack, 3, param3 ) );
+
+        uint16_t param4;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_UINT16( stack, 4, param4 ) );
+
+        int16_t param5;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_INT16( stack, 5, param5 ) );
+
+        LedPixelController::NativeSetOutputCorrection( param0, param1, param2, param3, param4, param5, hr );
         NANOCLR_CHECK_HRESULT( hr );
 
     }
