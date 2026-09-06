@@ -27,12 +27,13 @@ enum nf_openThreadModes{ NATIVE, SPI, UART};
 #define THREAD_DATASETTLVS                    "@THREAD_DATASETTLVS@"
 
 #if (HAL_USE_SDC == TRUE)
-// LEDTREES: 5 -> 16. Бюджет одновременно открытых файлов SD на MAIN:
-// кэш играющей программы держится открытым ВСЁ воспроизведение (+1 постоянно),
-// подготовка кэша (+2: tmp и frames.dat), раздача DownloadService — по файлу
-// на воркера (MaxConcurrentDownloads = 10 — уже больше прежнего лимита),
-// web-статика админки (+1 на запрос). С лимитом 5 File.OpenRead статики
-// падал 500-кой во время воспроизведения. Цена ~600 байт RAM на дескриптор.
+// LEDTREES: 5 -> 16. Budget of simultaneously open SD files on MAIN: the cache
+// of the playing program stays open for the WHOLE playback (+1 permanently),
+// preparing a cache takes +2 (tmp and frames.dat), the DownloadService serving
+// takes one file per worker (MaxConcurrentDownloads = 10, already more than the
+// previous limit), and the admin web static takes +1 per request. With a limit
+// of 5, File.OpenRead on static content failed with a 500 during playback. The
+// cost is around 600 bytes of RAM per descriptor.
 #define SDC_MAX_OPEN_FILES 16
 #endif
 

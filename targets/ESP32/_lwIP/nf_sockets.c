@@ -4301,15 +4301,16 @@ uint32_t lwip_socket_get_err(int s)
   if (sock == NULL) {
     return EBADF;
   }
-  // sock->err пишется единственным местом — EINPROGRESS неблокирующего
-  // connect — и событиями не обновляется: асинхронный отказ соединения
-  // (RST, abort, таймаут) оседает в netconn. Без подтяжки отсюда наверх
-  // вечно уходил бы устаревший EINPROGRESS (SocketException 10035) вместо
-  // реальной причины. netconn_err() ОЧИЩАЕТ pending-ошибку при чтении,
-  // поэтому кэшируем её в sock->err — повторные опросы возвращают то же.
-  // conn == NULL в окне teardown (close наполовину прошёл, lwip_netconn_do_close
-  // обнулил conn), а опрос ошибки гоняется с закрытием того же сокета из другого
-  // потока — netconn_err разыменовал бы NULL; тогда отдаём последний кэш sock->err.
+  // sock->err has a single writer - the EINPROGRESS of a non-blocking connect -
+  // and events never update it, so an asynchronous connection failure (RST, abort,
+  // timeout) is left sitting in the netconn. Without pulling it up from there, the
+  // stale EINPROGRESS would be reported forever (SocketException 10035) instead of
+  // the real cause. netconn_err() CLEARS the pending error as it reads it, hence
+  // caching it in sock->err so that repeated queries keep returning the same value.
+  // conn is NULL during the teardown window (a close is half-way through and
+  // lwip_netconn_do_close has already cleared it) and querying the error races with
+  // another thread closing the same socket, which netconn_err would dereference;
+  // in that case the last cached sock->err is returned instead.
   if (sock->conn != NULL) {
     err = err_to_errno(netconn_err(sock->conn));
     if (err != 0) {

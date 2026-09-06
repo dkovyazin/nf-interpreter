@@ -2,8 +2,8 @@
 *.zip
 /zips/
 
-# LEDTREES: ключ подписи прошивки (CONFIG_SECURE_BOOT_SIGNING_KEY) - приватный,
-# в git не попадает никогда; хранить резервную копию вне репозитория
+# LEDTREES: firmware signing key (CONFIG_SECURE_BOOT_SIGNING_KEY) - private,
+# never goes into git; keep a backup outside the repository
 /secure_boot_signing_key.pem
 
 # ignore build folder

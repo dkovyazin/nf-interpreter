@@ -1,12 +1,13 @@
 //-----------------------------------------------------------------------------
 //
-// LEDTREES: адаптер стаба FrameDecoder к компоненту ledtrees_framecodec.
+// LEDTREES: adapter from the FrameDecoder stub to the ledtrees_framecodec
+// component.
 //
-// Сама логика декода (delta-RLE, формат зеркалит managed FrameCodec.cs и
-// TS-энкодер) живёт в отдельном IDF-компоненте — репозиторий
-// ledtrees-idf-components, components/ledtrees_framecodec. Здесь остаётся
-// только разворачивание managed-массивов в (указатель, размер) и перевод кода
-// возврата в HRESULT.
+// The decoding itself (delta-RLE, a format that mirrors the managed
+// FrameCodec.cs and the TypeScript encoder) lives in a separate IDF component -
+// the ledtrees-idf-components repository, components/ledtrees_framecodec. All
+// that is left here is unwrapping the managed arrays into a pointer and a size,
+// and translating the return code into an HRESULT.
 //
 //-----------------------------------------------------------------------------
 
@@ -26,9 +27,9 @@ signed int FrameDecoder::NativeDecodeFrame(
     uint16_t param5,
     HRESULT &hr)
 {
-    // Границы managed-массивов проверяет компонент — ему для этого и передаются
-    // фактические размеры: bounds-check CLR в нативном коде не работает, промах
-    // ушёл бы прямо в память за блоком кучи.
+    // The component checks the bounds of the managed arrays, which is why it is
+    // handed the actual sizes: the CLR bounds check does not apply to native
+    // code, so an overrun would go straight into the memory past the heap block.
     int32_t result = lt_frame_decode(
         (const uint8_t *)param0.GetBuffer(),
         param0.GetSize(),
@@ -42,8 +43,9 @@ signed int FrameDecoder::NativeDecodeFrame(
 
     if (result == LT_FRAME_ERR_PARAM)
     {
-        // Managed-контракт прежний: аргументы не сошлись — исключение по hr, а в
-        // возврате тот же код «битый формат», что и раньше.
+        // The managed contract is unchanged: when the arguments do not add up it
+        // raises an exception through hr, and returns the same "malformed format"
+        // code as before.
         hr = CLR_E_INVALID_PARAMETER;
         return LT_FRAME_ERR_FORMAT;
     }

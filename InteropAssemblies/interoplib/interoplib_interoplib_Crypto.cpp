@@ -1,11 +1,11 @@
 //-----------------------------------------------------------------------------
 //
-// LEDTREES: адаптер стабов Crypto к компоненту ledtrees_crypto.
+// LEDTREES: adapter from the Crypto stubs to the ledtrees_crypto component.
 //
-// Потоковый SHA-256 и проверка подписи ECDSA P-256 поверх mbedTLS живут в
-// отдельном IDF-компоненте — репозиторий ledtrees-idf-components,
-// components/ledtrees_crypto. Здесь остаётся только разворачивание
-// managed-массивов и проверка их размеров.
+// The streaming SHA-256 and the ECDSA P-256 signature check on top of mbedTLS
+// live in a separate IDF component - the ledtrees-idf-components repository,
+// components/ledtrees_crypto. All that is left here is unwrapping the managed
+// arrays and validating their sizes.
 //
 //-----------------------------------------------------------------------------
 
@@ -46,8 +46,8 @@ bool Crypto::NativeSha256Final(CLR_RT_TypedArray_UINT8 param0, HRESULT &hr)
 }
 
 // param0 = pubkey X||Y (64), param1 = digest SHA-256 (32), param2 = signature r||s (64).
-// Неверная подпись или ошибка разбора точки/чисел — обычный false (не исключение);
-// hr выставляем только на некорректных размерах буферов.
+// A wrong signature, or a failure to parse the point or the numbers, is a plain
+// false rather than an exception; hr is only set for invalid buffer sizes.
 bool Crypto::NativeVerifyP256(
     CLR_RT_TypedArray_UINT8 param0,
     CLR_RT_TypedArray_UINT8 param1,

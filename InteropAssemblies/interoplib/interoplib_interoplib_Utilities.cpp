@@ -1,15 +1,15 @@
 //-----------------------------------------------------------------------------
 //
-// LEDTREES: адаптер стабов Utilities к компоненту ledtrees_sysinfo.
+// LEDTREES: adapter from the Utilities stubs to the ledtrees_sysinfo component.
 //
-// Идентификация, CRC, проба SD-шины, причина ресета, watermark кучи и выдача
-// core dump живут в отдельном IDF-компоненте — репозиторий
-// ledtrees-idf-components, components/ledtrees_sysinfo. Здесь остаётся
-// разворачивание managed-массивов с проверкой их размеров.
+// Identification, CRC, the SD bus probe, the reset reason, the heap watermark
+// and handing out the core dump all live in a separate IDF component - the
+// ledtrees-idf-components repository, components/ledtrees_sysinfo. What is left
+// here is unwrapping the managed arrays and validating their sizes.
 //
-// ИСКЛЮЧЕНИЕ — NativeWifiReconnect: он завязан на сетевой модуль самого
-// nf-interpreter (NF_ESP32_IsToConnect из NF_ESP32_Network.h) и в компонент не
-// выносится, реализация целиком здесь.
+// The EXCEPTION is NativeWifiReconnect: it depends on the network module of
+// nf-interpreter itself (NF_ESP32_IsToConnect from NF_ESP32_Network.h), so it is
+// not moved into the component and its implementation stays here in full.
 //
 //-----------------------------------------------------------------------------
 
@@ -19,52 +19,55 @@
 #include <esp_wifi.h>
 #include <ledtrees_sysinfo.h>
 
-// NF_ESP32_IsToConnect — флаг авто-реконнекта сетевого модуля
-// (NF_ESP32_Wireless.cpp): пока он выставлен, обработчик
-// WIFI_EVENT_STA_DISCONNECTED сам вызывает esp_wifi_connect — см.
-// NativeWifiReconnect. Декларация из заголовка, а не локальный extern:
-// локальная копия могла бы разъехаться с настоящим типом.
+// NF_ESP32_IsToConnect is the auto-reconnect flag of the network module
+// (NF_ESP32_Wireless.cpp): while it is set, the WIFI_EVENT_STA_DISCONNECTED
+// handler calls esp_wifi_connect on its own - see NativeWifiReconnect. Declared
+// through the header rather than a local extern, since a local copy could drift
+// away from the real type.
 #include <NF_ESP32_Network.h>
 
 using namespace interoplib::interoplib;
 
-// Принудительный реконнект Wi-Fi STA — лекарство от «мёртвого линка», которого
-// не видит драйвер: узел считает себя подключённым к ПРЕЖНЕМУ инстансу AP
-// (перезагрузка MAIN прошла быстрее beacon-timeout либо тот не отработал) и
-// вечно шлёт кадры со старыми ключами в никуда. Managed-сторожок
-// (ScreenCommandService) зовёт этот метод по тишине от MAIN.
+// A forced Wi-Fi STA reconnect, the cure for a "dead link" the driver does not
+// notice: the node believes it is still connected to the PREVIOUS instance of
+// the AP (MAIN rebooted faster than the beacon timeout, or that timeout never
+// fired) and keeps sending frames with stale keys into nowhere. The managed
+// watchdog (ScreenCommandService) calls this method when MAIN goes quiet.
 //
-// esp_wifi_disconnect + безусловный esp_wifi_connect. Одного disconnect'а мало:
-// событие STA_DISCONNECTED (его разбирает обработчик targetHAL_Network.cpp — при
-// выставленном NF_ESP32_IsToConnect он сам вызывает esp_wifi_connect) драйвер
-// порождает только из connected/connecting-состояния. В idle (авто-реконнект
-// оборвался: результат esp_wifi_connect в обработчике не проверяется, одна
-// коллизия со сканом рвёт цепочку навсегда) disconnect события не даёт — без
-// прямого connect узел оставался бы офлайн до передёргивания питания. Прямой
-// вызов безвреден и в остальных состояниях: connected/connecting вернёт ошибку,
-// а реконнект после disconnect сделает обработчик события.
-// Флаг поднимаем явно (не полагаясь на текущее состояние): вызов имеет смысл
-// только на STA-девайсе, где подключение штатно и ожидается. Ошибки в hr не
-// поднимаем: повторная попытка в любом состоянии драйвера безвредна, а сторожок
-// всё равно повторит через свой интервал.
+// esp_wifi_disconnect plus an unconditional esp_wifi_connect. A disconnect
+// alone is not enough: the driver only raises STA_DISCONNECTED (handled in
+// targetHAL_Network.cpp, which calls esp_wifi_connect itself while
+// NF_ESP32_IsToConnect is set) from the connected or connecting state. In idle -
+// where the auto-reconnect chain has broken, since the result of
+// esp_wifi_connect in the handler is not checked and a single collision with a
+// scan breaks the chain for good - a disconnect produces no event, and without a
+// direct connect the node would stay offline until the power is cycled. The
+// direct call is harmless in the other states too: connected or connecting
+// returns an error, and after a disconnect the event handler does the reconnect.
+// The flag is set explicitly rather than relying on its current value: the call
+// only makes sense on an STA device, where a connection is expected in normal
+// operation. Errors are not raised through hr: retrying in any driver state is
+// harmless, and the watchdog will repeat on its own interval anyway.
 void Utilities::NativeWifiReconnect( HRESULT &hr )
 {
     hr = S_OK;
 
-    // Гейт по режиму: реконнект осмыслен только там, где есть STA-интерфейс.
-    // На AP-девайсе (MAIN, несконфигурированный конфиг-режим) вызов — no-op:
-    // esp_wifi_disconnect там и так вернул бы ошибку, но главное — не трогаем
-    // NF_ESP32_IsToConnect, у AP-конфигурации флаг обязан оставаться false.
-    // Не инициализирован Wi-Fi — esp_wifi_get_mode вернёт ошибку, тоже no-op.
+    // Gate on the mode: a reconnect only makes sense where there is an STA
+    // interface. On an AP device (MAIN, or the unconfigured setup mode) the call
+    // is a no-op: esp_wifi_disconnect would return an error there anyway, but
+    // what matters is leaving NF_ESP32_IsToConnect alone, since for an AP
+    // configuration the flag must stay false. If Wi-Fi is not initialised,
+    // esp_wifi_get_mode returns an error, which is also a no-op.
     wifi_mode_t mode = WIFI_MODE_NULL;
     if (esp_wifi_get_mode(&mode) != ESP_OK || (mode != WIFI_MODE_STA && mode != WIFI_MODE_APSTA))
     {
         return;
     }
 
-    // Флаг поднимаем явно, не полагаясь на текущее значение: на STA-девайсе
-    // он уже true (выставлен штатным connect'ом с AutoConnect) — присваивание
-    // идемпотентно, но защищает от вызова в окне, когда connect ещё не прошёл.
+    // The flag is set explicitly rather than relying on its current value: on an
+    // STA device it is already true (set by the normal connect with AutoConnect),
+    // so the assignment is idempotent, but it guards a call made in the window
+    // before that connect has happened.
     NF_ESP32_IsToConnect = true;
     esp_wifi_disconnect();
     esp_wifi_connect();
@@ -72,7 +75,8 @@ void Utilities::NativeWifiReconnect( HRESULT &hr )
 
 void Utilities::NativeGetBaseMac( CLR_RT_TypedArray_UINT8 param0, HRESULT &hr )
 {
-    // managed обязан прислать буфер >= 6 байт: короче/NULL — запись за концом
+    // managed must pass a buffer of at least 6 bytes: anything shorter, or NULL,
+    // would be a write past the end
     if (param0.GetBuffer() == NULL || param0.GetSize() < 6) {
         hr = CLR_E_INVALID_PARAMETER;
         return;
@@ -81,17 +85,19 @@ void Utilities::NativeGetBaseMac( CLR_RT_TypedArray_UINT8 param0, HRESULT &hr )
     lt_sys_base_mac(param0.GetBuffer());
 }
 
-// Инкрементальный zlib-совместимый CRC32: табличный цикл по байту на nanoCLR
-// считает CRC мегабайтного .ltf десятки секунд, ROM-функция — миллисекунды.
+// An incremental zlib compatible CRC32: a table driven byte loop on nanoCLR
+// takes tens of seconds to checksum a megabyte-sized .ltf, the ROM function
+// takes milliseconds.
 unsigned int Utilities::NativeCrc32( unsigned int param0, CLR_RT_TypedArray_UINT8 param1, signed int param2, signed int param3, HRESULT &hr )
 {
     const uint8_t *data = (const uint8_t *)param1.GetBuffer();
     signed int offset = param2;
     signed int count = param3;
 
-    // Границы managed-массива проверяем здесь: bounds-check CLR в нативном коде не
-    // работает. offset/count складываем уже беззнаковыми — у signed int сумма двух
-    // больших положительных переполняется (UB), и проверку компилятор вправе выкинуть.
+    // The bounds of the managed array are checked here: the CLR bounds check does
+    // not apply to native code. offset and count are added as unsigned - for
+    // signed int the sum of two large positive values overflows, which is
+    // undefined behaviour and lets the compiler drop the check altogether.
     if (data == NULL || offset < 0 || count < 0 ||
         (uint32_t)offset + (uint32_t)count > param1.GetSize())
     {
@@ -102,8 +108,8 @@ unsigned int Utilities::NativeCrc32( unsigned int param0, CLR_RT_TypedArray_UINT
     return lt_sys_crc32(param0, data + offset, (size_t)count);
 }
 
-// Диагностическая проба SD-шины (см. Storage.Init на managed-стороне):
-// 0 ok, 1 таймаут (нет ответа), 2 CRC/данные, 3 прочее.
+// A diagnostic probe of the SD bus (see Storage.Init on the managed side):
+// 0 ok, 1 timeout (no response), 2 CRC or data, 3 anything else.
 signed int Utilities::NativeSdProbe( uint8_t width, uint16_t freqKhz, CLR_RT_TypedArray_UINT8 pins, HRESULT &hr )
 {
     hr = S_OK;
@@ -123,19 +129,21 @@ signed int Utilities::NativeSdProbe( uint8_t width, uint16_t freqKhz, CLR_RT_Typ
     return result;
 }
 
-// Причина последнего ресета — сырое значение esp_reset_reason_t (0 unknown,
+// The reason for the last reset, the raw esp_reset_reason_t value (0 unknown,
 // 1 poweron, 2 external, 3 software, 4 panic, 5 int wdt, 6 task wdt, 7 wdt,
-// 8 deep sleep, 9 brownout, 10 sdio). Managed-сторона повторяет ровно эти
-// номера (TelemetryEventCodes.ResetReason): таблица перевода здесь только
-// добавила бы место, где два перечисления разъезжаются при обновлении IDF.
+// 8 deep sleep, 9 brownout, 10 sdio). The managed side repeats exactly these
+// numbers (TelemetryEventCodes.ResetReason): a translation table here would only
+// add one more place for the two enumerations to drift apart when IDF is
+// updated.
 uint8_t Utilities::NativeGetResetReason( HRESULT &hr )
 {
     hr = S_OK;
     return lt_sys_reset_reason();
 }
 
-// Watermark: минимум свободной памяти за всё время работы. Текущее «свободно»
-// отвечает на вопрос «хватает ли сейчас», а этот — «подходили ли мы к краю».
+// Watermark: the minimum free memory over the whole uptime. The current "free"
+// answers whether there is enough right now, this one answers whether we ever
+// came close to the edge.
 unsigned int Utilities::NativeGetMinFreeHeap( bool spiRam, HRESULT &hr )
 {
     hr = S_OK;
@@ -143,10 +151,11 @@ unsigned int Utilities::NativeGetMinFreeHeap( bool spiRam, HRESULT &hr )
 }
 
 // ---------------------------------------------------------------------------
-// Core dump нативной паники (раздел coredump, docs/telemetry.md).
+// The core dump of a native panic (the coredump partition, docs/telemetry.md).
 //
-// Managed-кольцо лога (LogRing) панику не переживает: при ней CLR уже не
-// исполняется, и стек упавшей задачи виден ТОЛЬКО отсюда.
+// The managed log ring (LogRing) does not survive a panic: by then the CLR is no
+// longer executing, and the stack of the task that crashed is visible ONLY from
+// here.
 // ---------------------------------------------------------------------------
 
 unsigned int Utilities::NativeGetCoredumpSize( HRESULT &hr )
@@ -159,8 +168,8 @@ signed int Utilities::NativeReadCoredump( unsigned int offset, CLR_RT_TypedArray
 {
     hr = S_OK;
 
-    // Границы managed-массива проверяем здесь: bounds-check CLR в нативном коде
-    // не работает (та же логика, что в NativeCrc32).
+    // The bounds of the managed array are checked here: the CLR bounds check does
+    // not apply to native code (the same reasoning as in NativeCrc32).
     if (buffer.GetBuffer() == NULL || count < 0 || (uint32_t)count > buffer.GetSize())
     {
         hr = CLR_E_INVALID_PARAMETER;

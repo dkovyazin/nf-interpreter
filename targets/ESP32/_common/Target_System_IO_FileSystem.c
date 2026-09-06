@@ -45,10 +45,11 @@ static const char *TAG = "SDCard";
 
 sdmmc_card_t *card;
 
-// Буква тома, под которой смонтирована карта из card (0 — не смонтирована).
-// card один на всю систему, а слотов может быть несколько: без этой привязки
-// потребитель не отличит «свой» том от чужого и отдал бы для второго слота
-// характеристики первой карты.
+// Drive letter the card in `card` is mounted under (0 when not mounted).
+// There is a single `card` for the whole system while there can be several
+// slots: without this binding a consumer could not tell its own volume from
+// another one, and would report the characteristics of the first card for
+// the second slot.
 char cardDriveLetter;
 
 //
@@ -222,8 +223,8 @@ bool Storage_MountMMC(bool bit1Mode, int driveIndex)
         return false;
     }
 
-    // буква запоминается только при успехе: после отказа card невалиден и
-    // привязывать к нему том нельзя
+    // the letter is stored only on success: after a failure `card` is not valid
+    // and no volume may be bound to it
     cardDriveLetter = INDEX0_DRIVE_LETTER[0] + driveIndex;
 
     return true;
@@ -262,7 +263,7 @@ bool Storage_MountSpi(int spiBus, uint32_t csPin, int driveIndex)
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = false,
-        // LEDTREES: как и в MMC-ветке — общий лимит открытых файлов SD
+        // LEDTREES: as in the MMC branch - shared limit of open files on SD
         .max_files = SDC_MAX_OPEN_FILES,
         .allocation_unit_size = 16 * 1024};
 
@@ -286,8 +287,8 @@ bool Storage_MountSpi(int spiBus, uint32_t csPin, int driveIndex)
         return false;
     }
 
-    // буква запоминается только при успехе: после отказа card невалиден и
-    // привязывать к нему том нельзя
+    // the letter is stored only on success: after a failure `card` is not valid
+    // and no volume may be bound to it
     cardDriveLetter = INDEX0_DRIVE_LETTER[0] + driveIndex;
 
     return true;

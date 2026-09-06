@@ -70,7 +70,8 @@ namespace interoplib
 
 #endif // INTEROPLIB_INTEROPLIB_INTEROPLIB_LEDPIXELCONTROLLER_H
 
-// LEDTREES: ручных деклараций поверх генерата здесь больше нет — задачи
-// вывода/подкормки и SPI уехали внутрь компонента ledtrees_ledpixel
-// (репозиторий ledtrees-idf-components) и снаружи не видны. Файл теперь чистый
-// генерат: при регенерации из Stubs его можно копировать как есть.
+// LEDTREES: there are no hand written declarations on top of the generated code
+// here any more - the output and feeding tasks and the SPI moved inside the
+// ledtrees_ledpixel component (the ledtrees-idf-components repository) and are
+// not visible from outside. This file is now purely generated: when regenerating
+// from Stubs it can be copied as is.

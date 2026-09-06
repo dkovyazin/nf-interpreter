@@ -19,11 +19,12 @@ extern "C"
     struct LITTLEFS_FileHandle
     {
         FILE *file;
-        // Направление последней операции: 0 — нет/после позиционирования,
-        // 1 — чтение, 2 — запись. Файлы открыты в режиме обновления ("r+"),
-        // и по ANSI C между сменой направления обязан стоять fflush/fseek —
-        // иначе stdio-буфер отдаёт устаревшие или смещённые данные. Барьер
-        // ставит сам драйвер (см. Read/Write), не полагаясь на вызывающего.
+        // Direction of the last operation: 0 - none or right after a seek,
+        // 1 - read, 2 - write. Files are opened in update mode ("r+"), and
+        // ANSI C requires an fflush or fseek between a change of direction,
+        // otherwise the stdio buffer returns stale or misaligned data. The
+        // driver places that barrier itself (see Read/Write) rather than
+        // relying on the caller.
         uint8_t lastOp;
     };
 

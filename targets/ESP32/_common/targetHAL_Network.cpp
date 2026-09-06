@@ -26,11 +26,12 @@ extern esp_netif_t *WifiStationEspNetif;
 // #define 	PRINT_NET_EVENT 	1
 
 // buffer with host name
-// LEDTREES: свой префикс вместо апстримного "nanodevice_" — в DHCP-таблице
-// роутера (провижининг-сеть цеха, сеть покупателя) платы видны как свои.
-// Суффикс — те же три младших байта base MAC, что в deploy.json и в имени
-// setup-точки LedTrees_config_XXXXXX. При смене длины префикса поправить
-// смещение в compose_esp32_hostname.
+// LEDTREES: our own prefix instead of the upstream "nanodevice_", so that the
+// boards are recognisable as ours in a router's DHCP table (the workshop
+// provisioning network, a customer network). The suffix is the same three low
+// bytes of the base MAC as in deploy.json and in the name of the setup access
+// point LedTrees_config_XXXXXX. When the prefix length changes, fix up the
+// offset in compose_esp32_hostname.
 char hostName[18] = "ledtrees_";
 
 //
@@ -127,7 +128,7 @@ static void initialize_sntp()
 static void compose_esp32_hostname()
 {
     // compose host name with prefix and last 3 bytes of MAC address
-    // LEDTREES: ledtrees_XXXXXX (см. hostName выше); смещение — длина префикса
+    // LEDTREES: ledtrees_XXXXXX (see hostName above); the offset is the prefix length
     uint8_t mac[6];
     char *macPosition = hostName + 9;
 
@@ -209,10 +210,12 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
                 // get disconnected reason
                 staDisconnectedEvent = (wifi_event_sta_disconnected_t *)event_data;
 
-                // STA-сторона, читается монитором на узле: причина каждого
-                // дисконнекта (beacon-timeout, deauth от AP, NO_AP_FOUND и т.п.).
-                // В штатной работе молчит; при потере сети — строка на попытку
-                // реконнекта (~раз в 1-2 с), это осознанная цена наблюдаемости.
+                // the STA side, read by the monitor on the node: the reason for
+                // every disconnect (beacon timeout, a deauth from the AP,
+                // NO_AP_FOUND and so on). Silent in normal operation; when the
+                // network is lost it prints a line per reconnect attempt (about
+                // once every one or two seconds), a deliberate price for
+                // observability.
                 esp_rom_printf("[NET-DIAG] STA disconnected reason %d\r\n", (int)staDisconnectedEvent->reason);
 
                 if (NF_ESP32_ConnectInProgress)
@@ -287,11 +290,12 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
                 // Post the Network interface + Client ID in top 8 bits
                 PostAPStationChanged(1, IDF_WIFI_AP_DEF + (stationIndex << 8));
 
-                // След ассоциаций с MAC и AID — намеренно безусловный (виден и в
-                // RTM): ассоциации редки, а при полевой диагностике группы это
-                // единственный способ с MAIN увидеть, кто реально на связи. Именно
-                // так была найдена «призрачная ассоциация» узлов после ребута AP
-                // (см. SendHeartbeat в NodeCommandService приложения).
+                // A trace of associations with the MAC and AID, deliberately
+                // unconditional (visible in RTM too): associations are rare, and
+                // when diagnosing a group in the field this is the only way to see
+                // from MAIN who is actually connected. This is exactly how the
+                // "ghost association" of nodes after an AP reboot was found (see
+                // SendHeartbeat in the application's NodeCommandService).
                 esp_rom_printf(
                     "[NET-DIAG] AP STA connected %02x:%02x:%02x:%02x:%02x:%02x aid %d\r\n",
                     apConnectedEvent->mac[0],
@@ -311,9 +315,10 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
                 Network_Interface_Remove_Station(stationIndex);
                 PostAPStationChanged(0, IDF_WIFI_AP_DEF + (stationIndex << 8));
 
-                // Причина дисконнекта показывает, кто рвёт связь: узел сам (8 =
-                // LEAVING — штатный ребут), AP выгнал deauth'ом, таймаут
-                // неактивности. Безусловный по той же причине, что и connected.
+                // The disconnect reason shows who breaks the link: the node
+                // itself (8 = LEAVING, a normal reboot), the AP kicking it with a
+                // deauth, or an inactivity timeout. Unconditional for the same
+                // reason as connected.
                 esp_rom_printf(
                     "[NET-DIAG] AP STA disconnected %02x:%02x:%02x:%02x:%02x:%02x aid %d reason %d\r\n",
                     apDisconnectedEvent->mac[0],

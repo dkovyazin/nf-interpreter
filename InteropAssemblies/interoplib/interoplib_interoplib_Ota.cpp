@@ -95,11 +95,12 @@ bool Ota::NativeIsPendingConfirm(HRESULT &hr)
     return NF_Ota_IsPendingConfirm();
 }
 
-// LEDTREES: чтение собственных разделов для раздачи bundle из разделов
-// (PartitionBundle): clr-секция артефакта = работающий ota-слот, managed-секция =
-// deploy-раздел. Чтение флеши, в отличие от записи, XIP не останавливает —
-// раздача при играющей ленте безопасна. Возврат: count либо -1 (нет раздела /
-// выход за раздел / ошибка чтения); битые параметры — исключение.
+// LEDTREES: reading our own partitions, so a bundle can be served straight from
+// them (PartitionBundle): the clr section of the artefact is the running OTA
+// slot, the managed section is the deploy partition. Reading flash, unlike
+// writing it, does not stall XIP, so serving while the strip is playing is safe.
+// Returns either count or -1 (no such partition, a read past the partition, or a
+// read error); malformed arguments raise an exception.
 
 signed int Ota::NativeReadRunningFirmware(signed int param0, CLR_RT_TypedArray_UINT8 param1, signed int param2, HRESULT &hr)
 {

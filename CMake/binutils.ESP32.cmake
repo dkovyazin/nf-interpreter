@@ -216,27 +216,30 @@ macro(nf_add_platform_dependencies target)
     
     add_dependencies(${target}.elf nano::NF_NativeAssemblies)
 
-    # LEDTREES: адаптеры interop зовут API компонентов с нативной реализацией
-    # (ledtrees-idf-components) — линкуем их библиотеки, чтобы к адаптерам
-    # приехали include-каталоги компонентов. Библиотека компонента берётся так
-    # же, как у esp_tinyusb в nf_add_tinyusb_component.
+    # LEDTREES: the interop adapters call the API of the components holding the
+    # native implementation (ledtrees-idf-components), so their libraries are
+    # linked in to bring the components' include directories along to the
+    # adapters. The component library is obtained the same way esp_tinyusb is in
+    # nf_add_tinyusb_component.
     foreach(ledtreesComponent ${LEDTREES_COMPONENTS})
         idf_component_get_property(ledtreesComponentLib ${ledtreesComponent} COMPONENT_LIB)
         target_link_libraries(NF_NativeAssemblies PUBLIC ${ledtreesComponentLib})
     endforeach()
 
-    # LEDTREES: -O2 для горячего кода вместо -Os от MinSizeRel. Флаги типа
-    # сборки (CMAKE_*_FLAGS_MINSIZEREL) идут в командной строке раньше
-    # COMPILE_OPTIONS цели, поэтому -O2 здесь побеждает (последний -O выигрывает).
-    # CONFIG_COMPILER_OPTIMIZATION_PERF из sdkconfig покрывает только
-    # IDF-компоненты - интерпретатор CLR (NF_CoreCLR) и interop-код
-    # (NF_NativeAssemblies) без этого собирались с -Os. Тип сборки остаётся
-    # MinSizeRel: RTM и маркер "MinSizeRel build" в TARGETINFOSTRING не меняются.
+    # LEDTREES: -O2 for the hot code instead of the -Os that MinSizeRel brings.
+    # The build type flags (CMAKE_*_FLAGS_MINSIZEREL) come earlier on the command
+    # line than the target's COMPILE_OPTIONS, so the -O2 here wins (the last -O
+    # takes effect). CONFIG_COMPILER_OPTIMIZATION_PERF from the sdkconfig only
+    # covers the IDF components - without this, the CLR interpreter (NF_CoreCLR)
+    # and the interop code (NF_NativeAssemblies) were built with -Os. The build
+    # type stays MinSizeRel: RTM and the "MinSizeRel build" marker in
+    # TARGETINFOSTRING are unchanged.
     #
-    # Сам рендер уехал в компонент ledtrees_ledpixel и сюда больше не относится:
-    # там -O2 прибит своим target_compile_options, чтобы не зависеть от
-    # глобального PERF. Здесь остаются маршалинг и адаптеры - они на каждом
-    # interop-вызове, -O2 им по-прежнему полезен.
+    # The rendering itself moved into the ledtrees_ledpixel component and no
+    # longer belongs here: there -O2 is pinned by its own target_compile_options
+    # so as not to depend on the global PERF setting. What is left here is the
+    # marshalling and the adapters - they sit on every interop call, and -O2 is
+    # still worth it for them.
     target_compile_options(NF_CoreCLR PRIVATE -O2)
     target_compile_options(NF_NativeAssemblies PRIVATE -O2)
 
@@ -698,7 +701,7 @@ macro(nf_add_idf_as_library)
         esp_adc
         littlefs
         app_update
-        # LEDTREES: interop отдаёт наружу дамп нативной паники
+        # LEDTREES: interop exposes the native panic dump
         # (esp_core_dump_image_get/erase, docs/telemetry.md)
         espcoredump
     )
@@ -742,29 +745,34 @@ macro(nf_add_idf_as_library)
         list(APPEND IDF_LIBRARIES_TO_ADD idf::openthread)
     endif()
 
-    # LEDTREES: нативная реализация interop-методов вынесена в отдельные
-    # IDF-компоненты (репозиторий ledtrees-idf-components). Здесь, в
-    # InteropAssemblies/interoplib, остались только генерат MetadataProcessor
-    # (таблица method_lookup + маршалинг) и тонкие адаптеры к API компонентов.
+    # LEDTREES: the native implementation of the interop methods has been moved
+    # into separate IDF components (the ledtrees-idf-components repository). What
+    # is left here, in InteropAssemblies/interoplib, is only the MetadataProcessor
+    # output (the method_lookup table and the marshalling) and thin adapters to
+    # the components' API.
     #
-    # idf_build_component() ОБЯЗАН быть вызван до idf_build_process() ниже —
-    # иначе компонент не попадёт в граф сборки IDF. Имена дублируются в
-    # IDF_COMPONENTS_TO_ADD (что собирать) и IDF_LIBRARIES_TO_ADD (что линковать
-    # в .elf), как и у штатных компонентов IDF выше.
+    # idf_build_component() MUST be called before idf_build_process() below,
+    # otherwise the component does not make it into the IDF build graph. The
+    # names are repeated in IDF_COMPONENTS_TO_ADD (what to build) and
+    # IDF_LIBRARIES_TO_ADD (what to link into the .elf), just like the stock IDF
+    # components above.
     if(NF_INTEROP_ASSEMBLIES MATCHES "interoplib")
 
         if(NOT LEDTREES_IDF_COMPONENTS_PATH)
-            # дефолт — клон ledtrees-idf-components рядом с nf-interpreter;
-            # иначе путь задаётся опцией -DLEDTREES_IDF_COMPONENTS_PATH=...
+            # the default is a clone of ledtrees-idf-components next to
+            # nf-interpreter; otherwise the path is given with
+            # -DLEDTREES_IDF_COMPONENTS_PATH=...
             set(LEDTREES_IDF_COMPONENTS_PATH "${CMAKE_SOURCE_DIR}/../ledtrees-idf-components")
         endif()
 
-        # Обычная переменная, НЕ кэш: каталог сборки в nf-interpreter один на все
-        # таргеты, и закэшированный список пережил бы переконфигурацию под плату
-        # без interoplib — блок ниже пропустился бы, а idf_component_get_property
-        # у nf_add_lib_native_assemblies спросил бы незарегистрированный
-        # компонент и уронил конфигурацию. Область видимости достаточна:
-        # add_subdirectory с платой идёт после этого макроса и наследует значение.
+        # A normal variable, NOT a cache entry: there is a single build directory
+        # in nf-interpreter for all targets, and a cached list would survive a
+        # reconfiguration for a board without interoplib - the block below would
+        # be skipped while idf_component_get_property in
+        # nf_add_lib_native_assemblies would ask about an unregistered component
+        # and fail the configuration. The scope is sufficient: the
+        # add_subdirectory for the board comes after this macro and inherits the
+        # value.
         set(LEDTREES_COMPONENTS
             ledtrees_framecodec
             ledtrees_crypto

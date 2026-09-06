@@ -23,14 +23,15 @@ CONFIG_API_NANOFRAMEWORK_SYSTEM_SECURITY_CRYPTOGRAPHY=y
 CONFIG_API_NANOFRAMEWORK_SYSTEM_TEXT=y
 CONFIG_ESP32_RESERVE_SPIRAM_IDF_ALLOCATION_BYTES=1048576
 CONFIG_NF_WP_TRANSPORT_USB_CDC_OR_SERIAL=y
-# NF_BUILD_RTM здесь не задаётся: он выводится из CMAKE_BUILD_TYPE
-# (Release/MinSizeRel -> RTM, Debug -> отладчик CLR), см. NF_Kconfig.cmake
-# LEDTREES: остаётся y вынужденно - ESP32-платформа линкует NF_Debugger и
-# wire-protocol-объекты безусловно (binutils.ESP32.cmake:374,973 + прямые
-# объекты в elf), с OFF сборка не сходится. Деплой managed-кода по USB
-# (nanoff --deploy в обход подписи OTA) закрыт иначе: из RTM-таблицы команд
-# (src/CLR/Debugger/Debugger_minimal.cpp) вырезаны WriteMemory/EraseMemory/
-# Execute. Сам wire protocol жив - он нужен доставке рецепта раздачи
+# NF_BUILD_RTM is not set here: it is derived from CMAKE_BUILD_TYPE
+# (Release/MinSizeRel -> RTM, Debug -> CLR debugger), see NF_Kconfig.cmake
+# LEDTREES: has to stay y - the ESP32 platform links NF_Debugger and the wire
+# protocol objects unconditionally (binutils.ESP32.cmake:374,973 plus objects
+# added straight to the elf), and the build does not come together with it OFF.
+# Deploying managed code over USB (nanoff --deploy, bypassing the OTA signature)
+# is closed off differently: WriteMemory/EraseMemory/Execute are stripped from
+# the RTM command table (src/CLR/Debugger/Debugger_minimal.cpp). The wire
+# protocol itself stays alive - the rollout recipe delivery needs it
 # (HaltedFileDeploy: pause/resume + StorageOperation).
 CONFIG_NF_FEATURE_DEBUGGER=y
 CONFIG_NF_FEATURE_HAS_ACCESSIBLE_STORAGE=y

@@ -63,8 +63,9 @@ endforeach()
 
 include(FindPackageHandleStandardArgs)
 
-# пакет ищется как INTEROP-interoplib, а переменные модуль ведёт от имени
-# interoplib — несоответствие намеренное, NAME_MISMATCHED глушит dev-warning
+# the package is looked up as INTEROP-interoplib while the module names its
+# variables after interoplib - the mismatch is deliberate, NAME_MISMATCHED
+# silences the developer warning about it
 FIND_PACKAGE_HANDLE_STANDARD_ARGS(interoplib
     NAME_MISMATCHED
     REQUIRED_VARS interoplib_INCLUDE_DIRS interoplib_SOURCES)

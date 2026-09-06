@@ -60,11 +60,12 @@ list(APPEND ESP32_IDF_INCLUDE_DIRS ${IDF_PATH_CMAKED}/components/esp_wifi/includ
 list(APPEND ESP32_IDF_INCLUDE_DIRS ${IDF_PATH_CMAKED}/components/esp_wifi/include/local)
 list(APPEND ESP32_IDF_INCLUDE_DIRS ${IDF_PATH_CMAKED}/components/esp_partition/include)
 list(APPEND ESP32_IDF_INCLUDE_DIRS ${IDF_PATH_CMAKED}/components/app_update/include)
-# LEDTREES: esp_core_dump.h — interop отдаёт наружу дамп нативной паники
-# (InteropAssemblies/interoplib, docs/telemetry.md). Второй путь — port/xtensa:
-# esp_core_dump.h тянет esp_core_dump_summary_port.h, а тот лежит в каталоге
-# архитектуры (IDF подставляет его через target-специфичный INCLUDE_DIRS
-# компонента, которого у нас нет — список путей здесь плоский)
+# LEDTREES: esp_core_dump.h - interop exposes the native panic dump
+# (InteropAssemblies/interoplib, docs/telemetry.md). The second path is
+# port/xtensa: esp_core_dump.h pulls in esp_core_dump_summary_port.h, which
+# lives in the architecture directory (IDF supplies it through the component's
+# target specific INCLUDE_DIRS, which we do not have here - this path list is
+# flat)
 list(APPEND ESP32_IDF_INCLUDE_DIRS ${IDF_PATH_CMAKED}/components/espcoredump/include)
 list(APPEND ESP32_IDF_INCLUDE_DIRS ${IDF_PATH_CMAKED}/components/espcoredump/include/port/xtensa)
 list(APPEND ESP32_IDF_INCLUDE_DIRS ${IDF_PATH_CMAKED}/components/esp_app_format/include)

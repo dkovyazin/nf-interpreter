@@ -14,11 +14,12 @@
 #if (HAL_USE_SDC == TRUE)
 #include <sdmmc_cmd.h>
 
-// Смонтированная карта из Target_System_IO_FileSystem.c: её CSD прочитан при
-// монтировании, поэтому ёмкость достаётся оттуда мгновенно — в отличие от
-// расчёта по FAT, который упирается в f_getfree() (см. GetSizeInfo).
-// cardDriveLetter — том, которому эта карта принадлежит: card один на систему,
-// и без сверки второй слот получил бы характеристики первой карты.
+// The mounted card from Target_System_IO_FileSystem.c: its CSD was read at
+// mount time, so the capacity comes from there instantly - unlike a calculation
+// over the FAT, which runs into f_getfree() (see GetSizeInfo).
+// cardDriveLetter is the volume this card belongs to: there is a single card
+// per system, and without that check a second slot would report the
+// characteristics of the first card.
 extern "C" sdmmc_card_t *card;
 extern "C" char cardDriveLetter;
 #endif
@@ -124,28 +125,30 @@ HRESULT LITTLEFS_FS_Driver::Format(const VOLUME_ID *volume, const char *volumeLa
 
 HRESULT LITTLEFS_FS_Driver::GetSizeInfo(const VOLUME_ID *volume, int64_t *totalSize, int64_t *totalFreeSpace)
 {
-    // -1 = «неизвестно»: так это читает вызывающий (UpdateVolumeInfo кладёт
-    // ноль в managed-поле, если мы вернём ошибку, поэтому отдаём S_OK всегда).
+    // -1 means "unknown", which is how the caller reads it (UpdateVolumeInfo
+    // puts a zero into the managed field if we return an error, so S_OK is
+    // always returned here).
     *totalSize = -1;
 
-    // Свободное место остаётся неизвестным намеренно: единственный путь к нему —
-    // f_getfree(), а он обходит таблицу FAT и на больших картах успевает поймать
-    // watchdog. Ёмкость карты этого обхода не требует, поэтому её отдаём.
+    // Free space is deliberately left unknown: the only way to it is
+    // f_getfree(), which walks the FAT and on large cards takes long enough to
+    // trip the watchdog. The card capacity needs no such walk, so it is
+    // reported.
     *totalFreeSpace = -1;
 
 #if (HAL_USE_SDC == TRUE)
 
-    // Драйвер обслуживает и внутреннюю флешь (I:/J:), у которой CSD нет, —
-    // ёмкость карты имеет смысл только для того тома, на котором она и
-    // смонтирована (слотов может быть несколько, а card один).
+    // The driver also serves the internal flash (I:/J:), which has no CSD, so
+    // the card capacity only makes sense for the volume the card is actually
+    // mounted on (there can be several slots but only one card).
     FileSystemVolume *currentVolume = FileSystemVolumeList::FindVolume(volume->volumeId);
 
     if (currentVolume != NULL && card != NULL && cardDriveLetter != 0 &&
         currentVolume->m_rootName[0] == cardDriveLetter)
     {
-        // csd.capacity — число секторов, csd.sector_size — их размер: это
-        // физическая ёмкость карты (то, что написано на ней), а не ёмкость
-        // тома FAT.
+        // csd.capacity is the number of sectors and csd.sector_size their size:
+        // this is the physical capacity of the card (what is printed on it), not
+        // the capacity of the FAT volume.
         *totalSize = (int64_t)card->csd.capacity * card->csd.sector_size;
     }
 
@@ -333,8 +336,9 @@ HRESULT LITTLEFS_FS_Driver::Read(void *handle, uint8_t *buffer, int size, int *b
 
     fileHandle = (LITTLEFS_FileHandle *)handle;
 
-    // Барьер смены направления запись->чтение (ANSI C, см. lastOp в заголовке):
-    // fseek на текущую позицию сбрасывает write-буфер и легализует чтение
+    // Direction change barrier, write to read (ANSI C, see lastOp in the
+    // header): an fseek to the current position flushes the write buffer and
+    // makes the read legal
     if (fileHandle->lastOp == 2)
     {
         fseek(fileHandle->file, 0, SEEK_CUR);
@@ -345,8 +349,9 @@ HRESULT LITTLEFS_FS_Driver::Read(void *handle, uint8_t *buffer, int size, int *b
     // The pad keeps the pointer FatFs uses for direct whole-sector transfers
     // 4-byte aligned: after topping up the current partial sector it advances
     // our pointer by headBytes = (-pos) mod 512, so data goes to bounce + (pos & 3).
-    // Мелкие операции (< 512) идут напрямую: их обслуживает stdio-буфер без
-    // обращения к носителю, а bounce-путь добавлял бы ftell на каждый вызов.
+    // Small operations (< 512) go straight through: the stdio buffer serves
+    // them without touching the medium, while the bounce path would add an
+    // ftell on every call.
     if (size >= 512 && esp_ptr_external_ram(buffer))
     {
         readBounce = GetIoBounceBuffer();
@@ -374,7 +379,7 @@ HRESULT LITTLEFS_FS_Driver::Read(void *handle, uint8_t *buffer, int size, int *b
 
             if (part < (unsigned int)chunk)
             {
-                // EOF или ошибка — решают проверки ниже
+                // EOF or an error - the checks below decide
                 break;
             }
         }
@@ -427,8 +432,9 @@ HRESULT LITTLEFS_FS_Driver::Write(void *handle, uint8_t *buffer, int size, int *
 
     fileHandle = (LITTLEFS_FileHandle *)handle;
 
-    // Барьер смены направления чтение->запись (ANSI C, см. lastOp в заголовке):
-    // без позиционирования между fread и fwrite stdio пишет мимо логической позиции
+    // Direction change barrier, read to write (ANSI C, see lastOp in the
+    // header): without a seek between fread and fwrite, stdio writes past the
+    // logical position
     if (fileHandle->lastOp == 1)
     {
         fseek(fileHandle->file, 0, SEEK_CUR);
@@ -437,7 +443,7 @@ HRESULT LITTLEFS_FS_Driver::Write(void *handle, uint8_t *buffer, int size, int *
 
     // PSRAM source => write through the internal-RAM bounce buffer (see above);
     // pad = (pos & 3) keeps the direct whole-sector pointer 4-byte aligned.
-    // Мелкие записи (< 512) идут напрямую через stdio-буфер (см. Read).
+    // Small writes (< 512) go straight through the stdio buffer (see Read).
     if (size >= 512 && esp_ptr_external_ram(buffer))
     {
         writeBounce = GetIoBounceBuffer();
@@ -547,7 +553,7 @@ HRESULT LITTLEFS_FS_Driver::Seek(void *handle, int64_t offset, uint32_t origin, 
         return CLR_E_FILE_IO;
     }
 
-    // позиционирование — законный барьер для обоих направлений (см. lastOp)
+    // a seek is a legal barrier for both directions (see lastOp)
     fileHandle->lastOp = 0;
 
     // get the current position
@@ -598,7 +604,7 @@ HRESULT LITTLEFS_FS_Driver::GetLength(void *handle, int64_t *length)
         return CLR_E_FILE_IO;
     }
 
-    // завершились позиционированием — барьер для обоих направлений (см. lastOp)
+    // ended with a seek - a barrier for both directions (see lastOp)
     fileHandle->lastOp = 0;
 
     return S_OK;
@@ -638,7 +644,7 @@ HRESULT LITTLEFS_FS_Driver::SetLength(void *handle, int64_t length)
         return CLR_E_FILE_IO;
     }
 
-    // завершаемся позиционированием — барьер для обоих направлений (см. lastOp)
+    // ending with a seek - a barrier for both directions (see lastOp)
     fileHandle->lastOp = 0;
 
     // Restore file position

@@ -113,17 +113,19 @@ function(nf_load_kconfig)
         set(_user_overlay "${NF_USER_KCONFIG_OVERLAY}")
     endif()
 
-    # NF_BUILD_RTM выводится из типа сборки, а не из defconfig: боевые типы
-    # (Release/MinSizeRel) собираются с RTM (отладчик CLR вырезан),
-    # Debug/RelWithDebInfo — с отладчиком. Оверлей лежит МЕЖДУ defconfig и
-    # user-kconfig, так что локально его можно переопределить user-оверлеем.
+    # NF_BUILD_RTM is derived from the build type rather than from the defconfig:
+    # production types (Release/MinSizeRel) build with RTM (the CLR debugger is
+    # stripped), Debug/RelWithDebInfo build with the debugger. The overlay sits
+    # BETWEEN the defconfig and user-kconfig, so it can still be overridden
+    # locally by a user overlay.
     if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
         set(_buildtype_fragment "CONFIG_NF_BUILD_RTM=y\n")
     else()
-        # Пустой/нестандартный CMAKE_BUILD_TYPE молча даёт non-RTM сборку и
-        # force-снимает RTM даже там, где defconfig его включал — это законно
-        # для Debug/RelWithDebInfo, но при опечатке в пресете или multi-config
-        # генераторе downgrade прошёл бы незамеченным. Хотя бы говорим об этом.
+        # An empty or non-standard CMAKE_BUILD_TYPE silently produces a non-RTM
+        # build and force-clears RTM even where the defconfig had enabled it.
+        # That is legitimate for Debug/RelWithDebInfo, but with a typo in a
+        # preset or a multi-config generator the downgrade would go unnoticed,
+        # so at least say so.
         if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
             message(WARNING "NF_BUILD_RTM: CMAKE_BUILD_TYPE is '${CMAKE_BUILD_TYPE}' "
                 "(not Release/MinSizeRel/Debug/RelWithDebInfo) - building WITHOUT RTM "
@@ -137,7 +139,8 @@ function(nf_load_kconfig)
     if(EXISTS "${_buildtype_overlay}")
         file(READ "${_buildtype_overlay}" _existing_fragment)
     endif()
-    # не перезаписываем без изменений — лишний таймстамп зря дёргал бы regen
+    # don't rewrite when nothing changed - a fresh timestamp would trigger a
+    # needless regeneration
     if(NOT _existing_fragment STREQUAL _buildtype_fragment)
         file(WRITE "${_buildtype_overlay}" "${_buildtype_fragment}")
     endif()
