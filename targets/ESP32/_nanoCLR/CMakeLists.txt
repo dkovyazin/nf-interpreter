@@ -3,6 +3,9 @@
 # See LICENSE file in the project root for full license information.
 #
 
+# LEDTREES: reset before building the cached list, see targets/ESP32/_common/CMakeLists.txt
+set(TARGET_ESP32_IDF_NANOCLR_SOURCES "")
+
 # append target Esp32 nanoCLR source files
 list(APPEND TARGET_ESP32_IDF_NANOCLR_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/WireProtocol_MonitorCommands.c)
 list(APPEND TARGET_ESP32_IDF_NANOCLR_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/CLR_Startup_Thread.c) 
@@ -34,6 +37,9 @@ list(APPEND TARGET_ESP32_IDF_NANOCLR_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/targetP
 
 # make var global
 set(TARGET_ESP32_IDF_NANOCLR_SOURCES ${TARGET_ESP32_IDF_NANOCLR_SOURCES} CACHE INTERNAL "make global")
+
+# LEDTREES: reset before building the cached list, see targets/ESP32/_common/CMakeLists.txt
+set(TARGET_ESP32_IDF_NANOCLR_INCLUDE_DIRS "")
 
 # append target nanoCLR include directory
 list(APPEND TARGET_ESP32_IDF_NANOCLR_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR})

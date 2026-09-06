@@ -3,6 +3,9 @@
 # See LICENSE file in the project root for full license information.
 #
 
+# LEDTREES: reset before building the cached list, see targets/ESP32/_common/CMakeLists.txt
+set(TARGET_ESP32_IDF_NETWORK_SOURCES "")
+
 # append networking files, if enabled
 list(APPEND TARGET_ESP32_IDF_NETWORK_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/NF_ESP32_Network.cpp)
 list(APPEND TARGET_ESP32_IDF_NETWORK_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/NF_ESP32_Ethernet.cpp)
@@ -15,6 +18,9 @@ endif()
 
 # make var global
 set(TARGET_ESP32_IDF_NETWORK_SOURCES ${TARGET_ESP32_IDF_NETWORK_SOURCES} CACHE INTERNAL "make global")
+
+# LEDTREES: reset before building the cached list, see targets/ESP32/_common/CMakeLists.txt
+set(TARGET_ESP32_IDF_NETWORK_INCLUDE_DIRS "")
 
 # append include directory for target 
 list(APPEND TARGET_ESP32_IDF_NETWORK_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR})
