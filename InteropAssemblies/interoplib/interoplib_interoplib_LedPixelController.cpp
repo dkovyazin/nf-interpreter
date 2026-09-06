@@ -66,7 +66,7 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
         intr_flags:         0
     };
 
-    ret = spi_bus_initialize(SPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO); // инициализируем и включаем DMA для spi
+    ret = spi_bus_initialize(SPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO); // initialise the bus and enable DMA for SPI
     ESP_ERROR_CHECK(ret);
 
     spi_device_interface_config_t dev_cfg {
@@ -96,12 +96,12 @@ void LedPixelController::NativeInit( signed int mosiPin, signed int misoPin, sig
         return;
 
     xTaskCreatePinnedToCore(
-        Task1code,                                  /* Функция задачи. */
-        "Task1",                                    /* Ее имя. */
-        4096,                                       /* Размер стека функции */
-        NULL,                                       /* Параметры */
-        CONFIG_ESP32_PTHREAD_TASK_PRIO_DEFAULT,     /* Приоритет */
-        &Task1,                                     /* Дескриптор задачи для отслеживания */
+        Task1code,                                  /* Task function. */
+        "Task1",                                    /* Its name. */
+        4096,                                       /* Task stack size */
+        NULL,                                       /* Parameters */
+        CONFIG_ESP32_PTHREAD_TASK_PRIO_DEFAULT,     /* Priority */
+        &Task1,                                     /* Task handle, to keep track of it */
         1);
 
     //spi_send_data(DATA_BUFFER, INIT_BUFFER_SIZE);
