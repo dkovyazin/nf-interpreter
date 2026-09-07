@@ -53,6 +53,7 @@ uint32_t HAL_StorageOperation(uint8_t operation, uint32_t dataLength, uint32_t o
         char dirPath[FS_MAX_DIRECTORY_LENGTH];
         char *lastSeparator;
         int bytesWritten = 0;
+        HRESULT deleteResult;
 
         // extract parent directory from relative path and create it if needed
         snprintf(dirPath, sizeof(dirPath), "%s", relativePath);
@@ -74,15 +75,17 @@ uint32_t HAL_StorageOperation(uint8_t operation, uint32_t dataLength, uint32_t o
             }
         }
 
-        // LEDTREES: drop an existing file, so the write always starts from an
-        // empty one. Open() below does not truncate: a file system driver that
-        // opens an existing file for R/W (that's what the ESP32 littlefs driver
-        // does with "r+") keeps the previous length, and the very first Append
-        // chunk then fails the "seek(END) == offset" check further down - a file
-        // larger than the first chunk can never be overwritten. The ESP32
-        // implementation this code replaced (PR #3502) called remove() here.
-        // Result ignored on purpose: a missing file is the normal case.
-        volume->Delete(relativePath, false);
+        // Open() below doesn't truncate, so remove an existing file to start the write from an empty one
+        deleteResult = volume->Delete(relativePath, false);
+
+        // a missing file, or a volume without Delete, is the normal case; any other failure would leave
+        // the previous content in place and the write would produce a file with a stale tail
+        if (FAILED(deleteResult) && deleteResult != CLR_E_FILE_NOT_FOUND &&
+            deleteResult != CLR_E_NOT_SUPPORTED)
+        {
+            errorCode = StorageOperationErrorCode::WriteError;
+            goto done;
+        }
 
         // open the file (creates it, if it doesn't exist)
         if (FAILED(volume->Open(relativePath, fileHandle)))
